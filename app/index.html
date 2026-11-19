@@ -3,20 +3,88 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cover Snap</title>
+<title>Vice Cover Studio — GTA-style cover maker</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <main class="app">
-  <section class="controls">
-    <h1>Cover Snap</h1>
-    <p>A photo and a caption, made into a square cover.</p>
-    <label>Photo <input id="photo" type="file" accept="image/*"></label>
-    <label>Caption <input id="caption" type="text" maxlength="40" value="Sunset Heist"></label>
-    <button id="export" type="button">Export PNG 1080 x 1080</button>
-    <p id="status" role="status"></p>
+  <section class="controls" aria-label="Cover controls">
+    <header>
+      <h1>Vice Cover Studio</h1>
+      <p>Your photo + a caption, made into multi-panel cover art in the style of a GTA poster. Everything runs offline — photos never leave this machine.</p>
+    </header>
+
+    <section class="group" aria-label="Photos">
+      <h2>1 · Photos</h2>
+      <label class="upload">Add your photos
+        <input id="photos" type="file" accept="image/*" multiple>
+      </label>
+      <div class="samples">
+        <span>Or try a sample:</span>
+        <button id="sample-boulevard" type="button">Boulevard</button>
+        <button id="sample-pier" type="button">Pier</button>
+      </div>
+      <div id="library" class="library" aria-label="Photo library"></div>
+      <p class="hint">Click a photo to put it in the selected panel. <button id="fill-all" type="button" class="linklike">Fill all panels with it</button></p>
+    </section>
+
+    <section class="group" aria-label="Layout">
+      <h2>2 · Layout</h2>
+      <div id="layouts" class="layouts" role="group" aria-label="Panel layout">
+        <button type="button" data-layout="hero" class="layout-btn is-active" aria-pressed="true">
+          <span class="mini mini-hero" aria-hidden="true"></span>Hero + 3
+        </button>
+        <button type="button" data-layout="grid" class="layout-btn" aria-pressed="false">
+          <span class="mini mini-grid" aria-hidden="true"></span>Four panels
+        </button>
+        <button type="button" data-layout="strip" class="layout-btn" aria-pressed="false">
+          <span class="mini mini-strip" aria-hidden="true"></span>Full bleed + strip
+        </button>
+      </div>
+      <p class="hint">Click a panel in the preview to select it, then drag to move the photo inside it.</p>
+    </section>
+
+    <section class="group" aria-label="Grade">
+      <h2>3 · Grade</h2>
+      <div id="grades" class="grades" role="group" aria-label="Colour grade">
+        <button type="button" data-grade="sunset" class="grade-btn is-active" aria-pressed="true"><span class="swatch sw-sunset"></span>Sunset</button>
+        <button type="button" data-grade="neon" class="grade-btn" aria-pressed="false"><span class="swatch sw-neon"></span>Neon</button>
+        <button type="button" data-grade="vice" class="grade-btn" aria-pressed="false"><span class="swatch sw-vice"></span>Vice</button>
+        <button type="button" data-grade="gold" class="grade-btn" aria-pressed="false"><span class="swatch sw-gold"></span>Golden</button>
+      </div>
+      <label class="slider">Zoom selected panel
+        <input id="zoom" type="range" min="1" max="2.5" step="0.01" value="1">
+      </label>
+      <label class="check"><input id="grain" type="checkbox" checked> Film grain + vignette</label>
+    </section>
+
+    <section class="group" aria-label="Caption">
+      <h2>4 · Caption</h2>
+      <label>Title
+        <input id="title" type="text" maxlength="24" value="Neon Bay">
+      </label>
+      <label>Subtitle
+        <input id="subtitle" type="text" maxlength="40" value="Vice City Nights">
+      </label>
+    </section>
+
+    <section class="group" aria-label="Export">
+      <h2>5 · Export PNG</h2>
+      <div class="sizes" role="group" aria-label="Export size">
+        <button id="export-square" type="button">1080 × 1080</button>
+        <button id="export-portrait" type="button">1080 × 1350</button>
+        <button id="export-wide" type="button">1920 × 1080</button>
+      </div>
+      <button id="export-all" type="button" class="primary">Export all three sizes</button>
+      <p id="status" role="status"></p>
+    </section>
   </section>
-  <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
+
+  <section class="preview" aria-label="Live preview">
+    <canvas id="cover" width="1080" height="1080" aria-label="The cover preview"></canvas>
+    <p class="hint">Live preview — drag a panel to reposition its photo, scroll over it to zoom.</p>
+  </section>
 </main>
 <script type="module" src="./src/main.js"></script>
 </body>
