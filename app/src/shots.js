@@ -2,12 +2,12 @@
 //
 // A `?shot=` query stages one reproducible scene: `cover` hides the editor
 // and shows only the poster, `editor` keeps the whole page visible. The
-// query picks the export size, arrangement, colour wash, the two sample
-// photos (cycled across the visible panels) and the words. Once the photos
-// and the title font are in and the poster is painted,
+// query picks the export size, arrangement, colour wash, caption style,
+// the two sample photos (cycled across the visible panels) and the words.
+// Once the photos and the title font are in and the poster is painted,
 // `window.__shotReady` is set so a screenshot can be taken.
 
-import { ARRANGEMENTS, SIZE_SPECS, WASHES } from './cover.js';
+import { ARRANGEMENTS, CAPTION_STYLES, SIZE_SPECS, WASHES } from './cover.js';
 
 /** Loads one sample photo by its short name (`samples/<name>.jpg`). */
 function samplePhoto(fetchImage, name) {
@@ -23,7 +23,12 @@ function syncControls(studio) {
   if (headline) headline.value = studio.headline;
   const tagline = document.getElementById('tagline');
   if (tagline) tagline.value = studio.tagline;
-  const groups = { arrangement: studio.arrangement, wash: studio.wash, size: studio.sizeName };
+  const groups = {
+    arrangement: studio.arrangement,
+    wash: studio.wash,
+    size: studio.sizeName,
+    captionStyle: studio.captionStyle,
+  };
   for (const [group, value] of Object.entries(groups)) {
     document.querySelectorAll(`[data-${group}]`).forEach((chip) => {
       const on = chip.dataset[group] === value;
@@ -31,6 +36,16 @@ function syncControls(studio) {
       chip.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
+}
+
+/**
+ * Reads one query value only when it names a value the app actually
+ * offers, so a typo in a scene URL falls back to the editor default
+ * instead of staging a broken scene.
+ */
+function pickFrom(query, key, allowed) {
+  const value = query.get(key);
+  return value !== null && allowed.includes(value) ? value : null;
 }
 
 /**
@@ -42,26 +57,31 @@ export async function applyScene(query, studio, fetchImage, refresh) {
   const shot = query.get('shot');
   if (shot === 'cover') document.body.classList.add('cover-only');
 
-  const size = query.get('size');
-  if (size && Object.hasOwn(SIZE_SPECS, size)) studio.sizeName = size;
-  const layout = query.get('layout');
-  if (layout && ARRANGEMENTS.includes(layout)) studio.arrangement = layout;
-  const grade = query.get('grade');
-  if (grade && Object.hasOwn(WASHES, grade)) studio.wash = grade;
+  const size = pickFrom(query, 'size', Object.keys(SIZE_SPECS));
+  if (size) studio.sizeName = size;
+  const layout = pickFrom(query, 'layout', ARRANGEMENTS);
+  if (layout) studio.arrangement = layout;
+  const grade = pickFrom(query, 'grade', Object.keys(WASHES));
+  if (grade) studio.wash = grade;
+  const style = pickFrom(query, 'captionStyle', CAPTION_STYLES);
+  if (style) studio.captionStyle = style;
   const caption = query.get('caption');
   if (caption !== null) studio.headline = caption;
   const subtitle = query.get('subtitle');
   if (subtitle !== null) studio.tagline = subtitle;
 
-  // Fill the visible panels by cycling the two named photos.
+  // Fill the visible panels by cycling the two named photos. A `zoom`
+  // value (1–2) frames every panel a little tighter for close-up scenes.
   const first = query.get('photo') || 'pier';
   const second = query.get('photo2') || first;
+  const zoomRaw = Number(query.get('zoom'));
+  const zoom = Number.isFinite(zoomRaw) ? Math.max(1, Math.min(2, zoomRaw)) : 1;
   const names = [first, second, first, second];
   const loaded = await Promise.allSettled(names.map((name) => samplePhoto(fetchImage, name)));
   loaded.forEach((result, i) => {
     if (result.status === 'fulfilled') {
       studio.slots[i].photo = result.value;
-      studio.slots[i].zoom = 1;
+      studio.slots[i].zoom = zoom;
       studio.slots[i].dx = 0;
       studio.slots[i].dy = 0;
     }

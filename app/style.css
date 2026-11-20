@@ -10,6 +10,8 @@
 
 * { box-sizing: border-box; }
 
+::selection { background: #e83e8c; color: #fff; }
+
 html, body {
   margin: 0;
   min-height: 100%;
@@ -80,7 +82,11 @@ html, body {
   cursor: pointer;
 }
 
-.chip:hover { border-color: #b388ff; }
+.chip:hover { border-color: #b388ff; transform: translateY(-1px); }
+
+.chip:active { transform: translateY(0); }
+
+.chip:focus-visible { outline: 2px solid #37f5d3; outline-offset: 2px; }
 
 .chip-on {
   background: linear-gradient(135deg, #ff8a3d, #e83e8c);
@@ -121,7 +127,7 @@ label.field input[type="text"]:focus { outline: 2px solid #e83e8c; outline-offse
 
 .action-row { display: flex; gap: 8px; }
 
-button.primary, button.ghost {
+button.primary, button.ghost, button.accent {
   font: inherit;
   font-weight: 700;
   padding: 11px 14px;
@@ -138,7 +144,21 @@ button.primary {
 
 button.ghost { background: #2c1b4d; color: #e6dcf7; }
 
-button.primary:hover, button.ghost:hover { filter: brightness(1.12); }
+button.accent {
+  background: linear-gradient(135deg, #22d3ee, #8b5cf6);
+  color: #fff;
+}
+
+/* Full-width rail buttons: shuffle sits under the layout chips, and the
+   randomize button closes the rail as its loudest call to action. */
+button.wide { width: 100%; }
+
+button.primary:hover, button.ghost:hover, button.accent:hover { filter: brightness(1.12); }
+
+button.primary:focus-visible, button.ghost:focus-visible, button.accent:focus-visible {
+  outline: 2px solid #37f5d3;
+  outline-offset: 2px;
+}
 
 #note { margin: 0; min-height: 1.2em; color: #9be8d8; font-size: 13px; }
 
@@ -193,4 +213,5 @@ body.cover-only #stage {
 @media (max-width: 860px) {
   .studio-shell { grid-template-columns: 1fr; }
   .stage-wrap { order: -1; }
+  .panel-rail { max-height: none; }
 }

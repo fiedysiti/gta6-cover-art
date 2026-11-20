@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vice Cover Studio — GTA-style cover art maker</title>
-<meta name="description" content="Turn your photos and a caption into bold multi-panel GTA-style cover art, right in the browser.">
+<meta name="description" content="Build a bold multi-panel GTA-style cover from your own photos, right in the browser — pick a layout and grade, shuffle it, export a PNG.">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -19,17 +19,19 @@
       <label class="file-pick">Add photos
         <input id="pickFiles" type="file" accept="image/*" multiple>
       </label>
-      <p class="hint">Each photo fills the first empty panel. Drag a panel to pan it, scroll to zoom, double-click to reset it.</p>
+      <p class="hint">Each photo fills the first empty panel. Drag a panel to pan it, scroll to zoom, double-click to reset it — or paste an image straight from the clipboard.</p>
     </div>
 
     <div class="rail-group">
-      <span>Layout — keys 1–4</span>
+      <span>Layout — keys 1–5, S shuffles</span>
       <div class="chip-row" role="group" aria-label="Layout">
         <button type="button" class="chip chip-on" data-arrangement="hero">Hero</button>
         <button type="button" class="chip" data-arrangement="strip">Strip</button>
         <button type="button" class="chip" data-arrangement="grid">Grid</button>
         <button type="button" class="chip" data-arrangement="single">Single</button>
+        <button type="button" class="chip" data-arrangement="duo">Duo</button>
       </div>
+      <button id="shuffleLayout" type="button" class="ghost wide">Shuffle layout</button>
     </div>
 
     <div class="rail-group">
@@ -39,17 +41,27 @@
         <button type="button" class="chip" data-wash="neon">Neon</button>
         <button type="button" class="chip" data-wash="vice">Vice</button>
         <button type="button" class="chip" data-wash="gold">Gold</button>
+        <button type="button" class="chip" data-wash="duotone">Duotone</button>
+        <button type="button" class="chip" data-wash="midnight">Midnight</button>
       </div>
     </div>
 
     <div class="rail-group">
       <span>Words</span>
       <label class="field">Headline
-        <input id="headline" type="text" maxlength="40" value="Neon Bay" autocomplete="off">
+        <input id="headline" type="text" maxlength="40" value="Lucia's Run" autocomplete="off">
       </label>
       <label class="field">Tagline
-        <input id="tagline" type="text" maxlength="60" value="Vice City Nights" autocomplete="off">
+        <input id="tagline" type="text" maxlength="60" value="Outrun The Dawn" autocomplete="off">
       </label>
+    </div>
+
+    <div class="rail-group">
+      <span>Caption style</span>
+      <div class="chip-row" role="group" aria-label="Caption style">
+        <button type="button" class="chip chip-on" data-captionStyle="shadow">Shadow</button>
+        <button type="button" class="chip" data-captionStyle="outline">Outline</button>
+      </div>
     </div>
 
     <div class="rail-group">
@@ -62,9 +74,10 @@
     </div>
 
     <div class="action-row">
-      <button id="savePng" type="button" class="primary">Export PNG</button>
+      <button id="savePng" type="button" class="primary">Export PNG — E</button>
       <button id="resetFrame" type="button" class="ghost">Reset framing</button>
     </div>
+    <button id="randomize" type="button" class="accent wide">Randomize everything — R</button>
     <p id="note" role="status"></p>
   </aside>
 

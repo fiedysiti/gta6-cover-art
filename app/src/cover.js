@@ -2,9 +2,10 @@
 //
 // Paints the whole cover onto a canvas from a plain studio state object:
 // which arrangement of panels, which colour wash, which export size, the
-// headline + tagline, and one photo (with its own pan/zoom) per panel slot.
-// Nothing here touches the DOM except the canvas it is handed, so the same
-// function paints the live preview and the exported PNG.
+// headline + tagline, the caption style, and one photo (with its own
+// pan/zoom) per panel slot. Nothing here touches the DOM except the canvas
+// it is handed, so the same function paints the live preview and the
+// exported PNG, and the screenshot scenes reuse it unchanged.
 
 /** Export sizes the app offers, in final PNG pixels. */
 export const SIZE_SPECS = {
@@ -19,10 +20,15 @@ export const WASHES = {
   neon: { from: '#22d3ee', to: '#f021b6', accent: '#37f5d3', scrim: 0.42 },
   vice: { from: '#8b5cf6', to: '#ec4899', accent: '#f472b6', scrim: 0.5 },
   gold: { from: '#fbbf24', to: '#ea580c', accent: '#fde68a', scrim: 0.48 },
+  duotone: { from: '#0ea5e9', to: '#e11d48', accent: '#7dd3fc', scrim: 0.55 },
+  midnight: { from: '#1e3a8a', to: '#0f172a', accent: '#93c5fd', scrim: 0.62 },
 };
 
 /** Arrangements the picker offers. */
-export const ARRANGEMENTS = ['hero', 'strip', 'grid', 'single'];
+export const ARRANGEMENTS = ['hero', 'strip', 'grid', 'single', 'duo'];
+
+/** Caption render styles: soft drop shadow, or a bold hollow outline. */
+export const CAPTION_STYLES = ['shadow', 'outline'];
 
 /**
  * Panel rectangles for an arrangement inside a canvas of w x h.
@@ -33,6 +39,14 @@ export function slotBoxes(w, h, arrangement) {
   const m = gap;
   if (arrangement === 'single') {
     return [{ x: m, y: m, w: w - 2 * m, h: h - 2 * m }];
+  }
+  if (arrangement === 'duo') {
+    // Two tall panels side by side, split down the middle.
+    const cw = (w - 3 * m) / 2;
+    return [
+      { x: m, y: m, w: cw, h: h - 2 * m },
+      { x: 2 * m + cw, y: m, w: cw, h: h - 2 * m },
+    ];
   }
   if (arrangement === 'grid') {
     const cw = (w - 3 * m) / 2;
@@ -98,6 +112,30 @@ function shrinkToFit(ctx, text, startPx, maxWidth, family, weight) {
   return px;
 }
 
+/**
+ * Diagonal colour wash over a photo, plus a darker foot inside the panel
+ * so the headline stays readable even over a bright photo.
+ */
+function paintWashTint(ctx, box, wash) {
+  const tint = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
+  tint.addColorStop(0, wash.from + '3d');
+  tint.addColorStop(1, wash.to + '59');
+  ctx.fillStyle = tint;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  const foot = ctx.createLinearGradient(0, box.y + box.h * 0.72, 0, box.y + box.h);
+  foot.addColorStop(0, 'rgba(10, 4, 20, 0)');
+  foot.addColorStop(1, 'rgba(10, 4, 20, 0.28)');
+  ctx.fillStyle = foot;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+}
+
+/** Thin bright frame around a filled panel. */
+function paintPanelFrame(ctx, box) {
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = Math.max(2, box.w * 0.004);
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+}
+
 function paintEmptySlot(ctx, box, index) {
   ctx.fillStyle = '#251636';
   ctx.fillRect(box.x, box.y, box.w, box.h);
@@ -127,25 +165,43 @@ function paintPhotoSlot(ctx, img, box, slot, wash) {
   ctx.rect(box.x, box.y, box.w, box.h);
   ctx.clip();
   ctx.drawImage(img, place.x, place.y, place.w, place.h);
-  // Diagonal colour wash over the photo, plus a darker foot inside the
-  // panel so the headline stays readable even over a bright photo.
-  const tint = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
-  tint.addColorStop(0, wash.from + '3d');
-  tint.addColorStop(1, wash.to + '59');
-  ctx.fillStyle = tint;
-  ctx.fillRect(box.x, box.y, box.w, box.h);
-  const foot = ctx.createLinearGradient(0, box.y + box.h * 0.72, 0, box.y + box.h);
-  foot.addColorStop(0, 'rgba(10, 4, 20, 0)');
-  foot.addColorStop(1, 'rgba(10, 4, 20, 0.28)');
-  ctx.fillStyle = foot;
-  ctx.fillRect(box.x, box.y, box.w, box.h);
+  paintWashTint(ctx, box, wash);
   ctx.restore();
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.lineWidth = Math.max(2, box.w * 0.004);
-  ctx.strokeRect(box.x, box.y, box.w, box.h);
+  paintPanelFrame(ctx, box);
 }
 
-function paintWords(ctx, w, h, wash, headline, tagline) {
+/**
+ * Draws the headline once, in the chosen caption style. `shadow` fills
+ * white letters with a soft drop shadow; `outline` strokes hollow letters
+ * in the wash accent so the photo shows through the glyphs.
+ */
+function paintHeadline(ctx, words, x, baseline, px, family, wash, style) {
+  ctx.font = `900 ${px}px ${family}`;
+  if (style === 'outline') {
+    // A wide dark under-stroke first so the hollow letters stay readable
+    // over bright photos, then the accent stroke, then a near-white fill
+    // at low opacity so the photo still shows through the glyphs.
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(10, 4, 20, 0.85)';
+    ctx.lineWidth = Math.max(3, px * 0.09);
+    ctx.strokeText(words, x, baseline);
+    ctx.strokeStyle = wash.accent;
+    ctx.lineWidth = Math.max(2, px * 0.045);
+    ctx.strokeText(words, x, baseline);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+    ctx.fillText(words, x, baseline);
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = px * 0.16;
+    ctx.shadowOffsetY = px * 0.03;
+    ctx.fillText(words, x, baseline);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+  }
+}
+
+function paintWords(ctx, w, h, wash, headline, tagline, captionStyle) {
   const margin = Math.max(14, Math.round(Math.min(w, h) * 0.02));
   const words = (headline || '').trim().toUpperCase();
   const sub = (tagline || '').trim().toUpperCase();
@@ -165,18 +221,13 @@ function paintWords(ctx, w, h, wash, headline, tagline) {
   const subPx = Math.max(16, Math.round(h * 0.032));
   const gapPx = Math.round(h * 0.018);
   const headBaseline = h - margin - (sub ? subPx + gapPx : 0);
+  const style = captionStyle === 'outline' ? 'outline' : 'shadow';
   if (words) {
     const headPx = shrinkToFit(ctx, words, Math.round(h * 0.13), w - 2 * margin, family, 900);
     // Short accent bar above the headline.
     ctx.fillStyle = wash.accent;
     ctx.fillRect(margin, headBaseline - headPx - Math.round(headPx * 0.28), Math.round(w * 0.075), Math.max(4, Math.round(headPx * 0.07)));
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-    ctx.shadowBlur = headPx * 0.16;
-    ctx.shadowOffsetY = headPx * 0.03;
-    ctx.fillText(words, margin, headBaseline);
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
+    paintHeadline(ctx, words, margin, headBaseline, headPx, family, wash, style);
   }
   if (sub) {
     try { ctx.letterSpacing = `${Math.max(2, Math.round(subPx * 0.18))}px`; } catch { /* older canvas: no tracking */ }
@@ -190,8 +241,8 @@ function paintWords(ctx, w, h, wash, headline, tagline) {
 /**
  * Paints the full poster: background, every visible panel (photo or empty
  * placeholder), then the headline and tagline along the foot.
- * `studio` is { arrangement, wash, headline, tagline, slots } where each
- * slot is { photo, zoom, dx, dy }.
+ * `studio` is { arrangement, wash, headline, tagline, captionStyle, slots }
+ * where each slot is { photo, zoom, dx, dy }.
  */
 export function paintPoster(canvas, studio) {
   const ctx = canvas.getContext('2d');
@@ -206,5 +257,5 @@ export function paintPoster(canvas, studio) {
     if (slot.photo) paintPhotoSlot(ctx, slot.photo, box, slot, wash);
     else paintEmptySlot(ctx, box, i);
   });
-  paintWords(ctx, w, h, wash, studio.headline, studio.tagline);
+  paintWords(ctx, w, h, wash, studio.headline, studio.tagline, studio.captionStyle);
 }

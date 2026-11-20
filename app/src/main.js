@@ -1,12 +1,13 @@
 // Vice Cover Studio — editor wiring.
 //
-// Owns the studio state (arrangement, wash, size, words, one photo + framing
-// per panel slot) and connects it to the page: the pickers, the file input,
-// drag-to-pan and wheel-to-zoom on the canvas, keyboard shortcuts, and the
-// PNG export. A `?shot=` query hands control to ./shots.js instead, which
+// Owns the studio state (arrangement, wash, size, words, caption style,
+// one photo + framing per panel slot) and connects it to the page: the
+// pickers, the file input, drag-to-pan and wheel-to-zoom on the canvas,
+// keyboard shortcuts, the shuffle and randomize helpers, and the PNG
+// export. A `?shot=` query hands control to ./shots.js instead, which
 // stages one fixed scene for a screenshot.
 
-import { ARRANGEMENTS, SIZE_SPECS, WASHES, paintPoster, slotBoxes } from './cover.js';
+import { ARRANGEMENTS, CAPTION_STYLES, SIZE_SPECS, WASHES, paintPoster, slotBoxes } from './cover.js';
 import { applyScene } from './shots.js';
 
 const stage = document.getElementById('stage');
@@ -24,8 +25,9 @@ export const studio = {
   arrangement: 'hero',
   wash: 'sunset',
   sizeName: 'wide',
-  headline: 'Neon Bay',
-  tagline: 'Vice City Nights',
+  headline: "Lucia's Run",
+  tagline: 'Outrun The Dawn',
+  captionStyle: 'shadow',
   slots: [blankSlot(), blankSlot(), blankSlot(), blankSlot()],
   picked: 0,
 };
@@ -80,6 +82,48 @@ function setSizeName(name) {
   refresh();
 }
 
+function setCaptionStyle(name) {
+  if (!CAPTION_STYLES.includes(name)) return;
+  studio.captionStyle = name;
+  markActive('captionStyle', name);
+  refresh();
+}
+
+/** Picks one item from a list at random. */
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/** Steps to a different layout than the current one, at random. */
+function shuffleLayout() {
+  const others = ARRANGEMENTS.filter((name) => name !== studio.arrangement);
+  setArrangement(pickRandom(others));
+  note.textContent = `Layout: ${studio.arrangement}.`;
+}
+
+/**
+ * Fresh random poster: a new layout, a new grade, a new caption style,
+ * and the loaded photos dealt into the panels in a random order.
+ */
+function randomizePoster() {
+  setArrangement(pickRandom(ARRANGEMENTS));
+  setWash(pickRandom(Object.keys(WASHES)));
+  setCaptionStyle(pickRandom(CAPTION_STYLES));
+  const photos = studio.slots.map((slot) => slot.photo).filter(Boolean);
+  for (let i = photos.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [photos[i], photos[j]] = [photos[j], photos[i]];
+  }
+  studio.slots.forEach((slot, i) => {
+    slot.photo = photos[i] || null;
+    slot.zoom = 1;
+    slot.dx = 0;
+    slot.dy = 0;
+  });
+  refresh();
+  note.textContent = `Randomized — ${studio.arrangement} layout, ${studio.wash} grade, ${studio.captionStyle} caption.`;
+}
+
 /** First empty slot, or the picked slot when every slot already has a photo. */
 function nextFreeSlot() {
   const empty = studio.slots.findIndex((slot) => !slot.photo);
@@ -126,6 +170,24 @@ function resetFraming(index) {
   refresh();
 }
 
+/** Paints the poster at full export size and downloads it as a PNG. */
+function exportPng() {
+  const spec = SIZE_SPECS[studio.sizeName] || SIZE_SPECS.wide;
+  const off = document.createElement('canvas');
+  off.width = spec.w;
+  off.height = spec.h;
+  paintPoster(off, studio);
+  off.toBlob((blob) => {
+    if (!blob) { note.textContent = 'Export failed — try again.'; return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `vice-cover-${studio.sizeName}-${spec.w}x${spec.h}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    note.textContent = `Saved vice-cover-${studio.sizeName}-${spec.w}x${spec.h}.png`;
+  }, 'image/png');
+}
+
 // --- Pointer framing: drag pans the panel under the cursor, wheel zooms it. ---
 let drag = null;
 stage.addEventListener('pointerdown', (event) => {
@@ -170,6 +232,11 @@ fileInput.addEventListener('change', (event) => {
   takeFiles([...event.target.files]);
   fileInput.value = '';
 });
+// Paste an image from the clipboard straight into the first empty panel.
+document.addEventListener('paste', (event) => {
+  const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith('image/'));
+  if (files.length) takeFiles(files);
+});
 headlineInput.addEventListener('input', () => { studio.headline = headlineInput.value; refresh(); });
 taglineInput.addEventListener('input', () => { studio.tagline = taglineInput.value; refresh(); });
 document.querySelectorAll('[data-arrangement]').forEach((chip) => {
@@ -181,33 +248,27 @@ document.querySelectorAll('[data-wash]').forEach((chip) => {
 document.querySelectorAll('[data-size]').forEach((chip) => {
   chip.addEventListener('click', () => setSizeName(chip.dataset.size));
 });
+document.querySelectorAll('[data-captionStyle]').forEach((chip) => {
+  chip.addEventListener('click', () => setCaptionStyle(chip.dataset.captionStyle));
+});
+document.getElementById('shuffleLayout').addEventListener('click', shuffleLayout);
+document.getElementById('randomize').addEventListener('click', randomizePoster);
 document.getElementById('resetFrame').addEventListener('click', () => {
   resetFraming(studio.picked);
   note.textContent = `Panel ${studio.picked + 1} framing reset.`;
 });
-document.getElementById('savePng').addEventListener('click', () => {
-  const spec = SIZE_SPECS[studio.sizeName] || SIZE_SPECS.wide;
-  const off = document.createElement('canvas');
-  off.width = spec.w;
-  off.height = spec.h;
-  paintPoster(off, studio);
-  off.toBlob((blob) => {
-    if (!blob) { note.textContent = 'Export failed — try again.'; return; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `vice-cover-${studio.sizeName}-${spec.w}x${spec.h}.png`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    note.textContent = `Saved vice-cover-${studio.sizeName}-${spec.w}x${spec.h}.png`;
-  }, 'image/png');
-});
+document.getElementById('savePng').addEventListener('click', exportPng);
 
-// Keys 1-4 switch the layout without reaching for the mouse.
+// Keys 1–5 switch the layout, E exports, R randomizes, S shuffles the
+// layout — all without reaching for the mouse.
 document.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;
-  const names = ['hero', 'strip', 'grid', 'single'];
-  const at = ['1', '2', '3', '4'].indexOf(event.key);
-  if (at !== -1) setArrangement(names[at]);
+  const at = ['1', '2', '3', '4', '5'].indexOf(event.key);
+  if (at !== -1) { setArrangement(ARRANGEMENTS[at]); return; }
+  const key = event.key.toLowerCase();
+  if (key === 'e') exportPng();
+  else if (key === 'r') randomizePoster();
+  else if (key === 's') shuffleLayout();
 });
 
 // --- Start: a fixed screenshot scene, or the plain editor with samples. ---

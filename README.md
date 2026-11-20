@@ -4,15 +4,25 @@
 [![rank](https://make.fun/badge/gta6-cover-art-01/fiedysiti/gta6-cover-art/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![reward](https://make.fun/badge/gta6-cover-art-01/fiedysiti/gta6-cover-art/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-Vice Cover Studio turns your own photos and a bold caption into a multi-panel poster in the spirit of a GTA cover — drag each panel to frame it, pick a sunset or neon grade, and export a print-ready PNG. Everything runs offline in the browser, so your photos never leave your machine.
+Vice Cover Studio is a poster workshop for the GTA VI mood: drop in your own shots, arrange them into panels, wash them in sunset or midnight colour, and set a huge condensed headline over the top. The whole thing is a static page — no build, no upload, no account — so the pictures you use stay on your own computer from start to finish.
 
-## What it does
+## What you can do
 
-- Four layouts (Hero, Strip, Grid, Single) — switch with keys 1–4 or the chips.
-- Four colour grades (Sunset, Neon, Vice, Gold) washed over every photo.
-- Per-panel framing: drag to pan, scroll to zoom, double-click to reset.
-- Headline + tagline with auto-fit condensed lettering (bundled Noto Sans Display Condensed Black, SIL OFL).
-- Batch photo upload into the first empty panels; export PNG at 1920×1080, 1080×1350, or 1080×1080.
+- Five panel arrangements (Hero, Strip, Grid, Single, Duo) — keys 1–5, or hit S to shuffle to a new one.
+- Six colour grades (Sunset, Neon, Vice, Gold, Duotone, Midnight) laid over every photo.
+- Frame each panel by hand: drag to pan, scroll to zoom, double-click to reset.
+- Headline + tagline in auto-fitting condensed type (bundled Noto Sans Display Condensed Black, SIL OFL), in either a shadow or an outline caption style.
+- One-click Randomize (R) deals a fresh layout, grade, caption style, and photo order; E exports the poster as a PNG at 1920×1080, 1080×1350, or 1080×1080.
+
+## Shortcuts
+
+| Key | Does |
+| --- | ---- |
+| 1–5 | Switch layout (Hero, Strip, Grid, Single, Duo) |
+| S | Shuffle to a different layout |
+| R | Randomize layout, grade, caption style, and photo order |
+| E | Export PNG |
+| Ctrl/Cmd + V | Paste an image from the clipboard into the first empty panel |
 
 ## Run it
 
