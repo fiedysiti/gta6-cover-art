@@ -1,9 +1,9 @@
 // Vice Cover Studio — cover renderer.
 //
-// Everything the app shows and exports is painted here with plain canvas 2D:
-// multi-panel layouts, colour grades, film grain, a vignette, and the bold
-// condensed title band at the foot. The live preview and the exported PNGs
-// share this one code path, so what you see is exactly what you save.
+// Everything the app shows and exports is painted here with plain canvas
+// 2D: multi-panel layouts, colour grades, film grain, a vignette, and the
+// bold condensed title band at the foot. The live preview and the exported
+// PNGs share this one code path, so what you see is exactly what you save.
 //
 // A cover state looks like:
 //   { layout, grade, title, subtitle, grain, panels: [{ img, zoom, ox, oy }] }
@@ -16,65 +16,43 @@ const TITLE_SHARE = 0.15;
 // Gutter between panels, as a share of the cover width.
 const GUTTER_SHARE = 0.006;
 
-// Panel boxes as fractions of the photo area (everything above the title
-// band). Each entry is { x, y, w, h } in 0..1.
+// One panel box as fractions of the photo area (everything above the title
+// band): { x, y, w, h }, each in 0..1.
+const box = (x, y, w, h) => ({ x, y, w, h });
+
 export const LAYOUTS = {
   hero: [
-    { x: 0, y: 0, w: 0.62, h: 1 },
-    { x: 0.62, y: 0, w: 0.38, h: 1 / 3 },
-    { x: 0.62, y: 1 / 3, w: 0.38, h: 1 / 3 },
-    { x: 0.62, y: 2 / 3, w: 0.38, h: 1 / 3 },
+    box(0, 0, 0.62, 1),
+    box(0.62, 0, 0.38, 1 / 3),
+    box(0.62, 1 / 3, 0.38, 1 / 3),
+    box(0.62, 2 / 3, 0.38, 1 / 3),
   ],
   grid: [
-    { x: 0, y: 0, w: 0.5, h: 0.5 },
-    { x: 0.5, y: 0, w: 0.5, h: 0.5 },
-    { x: 0, y: 0.5, w: 0.5, h: 0.5 },
-    { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+    box(0, 0, 0.5, 0.5),
+    box(0.5, 0, 0.5, 0.5),
+    box(0, 0.5, 0.5, 0.5),
+    box(0.5, 0.5, 0.5, 0.5),
   ],
   strip: [
-    { x: 0, y: 0, w: 1, h: 0.62 },
-    { x: 0, y: 0.62, w: 1 / 3, h: 0.38 },
-    { x: 1 / 3, y: 0.62, w: 1 / 3, h: 0.38 },
-    { x: 2 / 3, y: 0.62, w: 1 / 3, h: 0.38 },
+    box(0, 0, 1, 0.62),
+    box(0, 0.62, 1 / 3, 0.38),
+    box(1 / 3, 0.62, 1 / 3, 0.38),
+    box(2 / 3, 0.62, 1 / 3, 0.38),
   ],
 };
 
 // A grade is a canvas filter for the photo plus a two-colour wash painted
 // over it with a blend mode, and a faint multiply tint on top. Together they
 // give any photo the same sunset / neon / vice / golden treatment.
+const gradeSpec = (filter, washFrom, washTo, washBlend, washStrength, tint) => ({
+  filter, washFrom, washTo, washBlend, washStrength, tint,
+});
+
 export const GRADES = {
-  sunset: {
-    filter: 'saturate(1.35) contrast(1.08)',
-    washFrom: '#ffb347',
-    washTo: '#ff2e88',
-    washBlend: 'soft-light',
-    washStrength: 0.6,
-    tint: 'rgba(255, 110, 60, 0.14)',
-  },
-  neon: {
-    filter: 'saturate(1.55) contrast(1.12)',
-    washFrom: '#00e5ff',
-    washTo: '#ff2ea6',
-    washBlend: 'overlay',
-    washStrength: 0.55,
-    tint: 'rgba(0, 229, 255, 0.10)',
-  },
-  vice: {
-    filter: 'saturate(1.45) contrast(1.06)',
-    washFrom: '#7b2fff',
-    washTo: '#ff5ea8',
-    washBlend: 'soft-light',
-    washStrength: 0.65,
-    tint: 'rgba(123, 47, 255, 0.14)',
-  },
-  gold: {
-    filter: 'saturate(1.3) contrast(1.05)',
-    washFrom: '#ffe08a',
-    washTo: '#ff7b00',
-    washBlend: 'soft-light',
-    washStrength: 0.55,
-    tint: 'rgba(255, 179, 71, 0.14)',
-  },
+  sunset: gradeSpec('saturate(1.35) contrast(1.08)', '#ffb347', '#ff2e88', 'soft-light', 0.6, 'rgba(255, 110, 60, 0.14)'),
+  neon: gradeSpec('saturate(1.55) contrast(1.12)', '#00e5ff', '#ff2ea6', 'overlay', 0.55, 'rgba(0, 229, 255, 0.10)'),
+  vice: gradeSpec('saturate(1.45) contrast(1.06)', '#7b2fff', '#ff5ea8', 'soft-light', 0.65, 'rgba(123, 47, 255, 0.14)'),
+  gold: gradeSpec('saturate(1.3) contrast(1.05)', '#ffe08a', '#ff7b00', 'soft-light', 0.55, 'rgba(255, 179, 71, 0.14)'),
 };
 
 export const EXPORT_SIZES = {
@@ -84,14 +62,14 @@ export const EXPORT_SIZES = {
 };
 export const EXPORT_ORDER = ['square', 'portrait', 'wide'];
 
-const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+const clampNum = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 
-let grainTile = null;
+let noiseTile = null;
 
 // Lazily builds a small tile of grey noise and returns it as a repeat
 // pattern for the context that asked. One tile serves every later paint.
-function grainPattern(ctx) {
-  if (grainTile) return grainTile;
+function noisePattern(ctx) {
+  if (noiseTile) return noiseTile;
   const size = 128;
   const tile = document.createElement('canvas');
   tile.width = size;
@@ -106,8 +84,8 @@ function grainPattern(ctx) {
     pixels.data[i + 3] = 255;
   }
   tctx.putImageData(pixels, 0, 0);
-  grainTile = ctx.createPattern(tile, 'repeat');
-  return grainTile;
+  noiseTile = ctx.createPattern(tile, 'repeat');
+  return noiseTile;
 }
 
 // Panel boxes in canvas pixels for `layout` on a cover of w x h.
@@ -115,28 +93,28 @@ export function panelRects(layout, w, h) {
   const photoH = h * (1 - TITLE_SHARE);
   const gutter = Math.max(4, Math.round(w * GUTTER_SHARE));
   const boxes = LAYOUTS[layout] || LAYOUTS.hero;
-  return boxes.map((box) => ({
-    x: box.x * w + gutter / 2,
-    y: box.y * photoH + gutter / 2,
-    w: box.w * w - gutter,
-    h: box.h * photoH - gutter,
+  return boxes.map((b) => ({
+    x: b.x * w + gutter / 2,
+    y: b.y * photoH + gutter / 2,
+    w: b.w * w - gutter,
+    h: b.h * photoH - gutter,
   }));
 }
 
 // The scale that makes an image cover a box, times the user's zoom, plus the
 // draw position for the current pan. Pan is clamped so the photo can never
 // slide far enough to expose bare background at a panel edge.
-function coverPlacement(img, box, zoom, ox, oy) {
-  const scale = Math.max(box.w / img.naturalWidth, box.h / img.naturalHeight) * zoom;
+function placePhoto(img, panelBox, zoom, ox, oy) {
+  const scale = Math.max(panelBox.w / img.naturalWidth, panelBox.h / img.naturalHeight) * zoom;
   const drawW = img.naturalWidth * scale;
   const drawH = img.naturalHeight * scale;
-  const slackX = Math.max(0, (drawW - box.w) / 2 / box.w);
-  const slackY = Math.max(0, (drawH - box.h) / 2 / box.h);
-  const panX = clamp(ox || 0, -slackX, slackX);
-  const panY = clamp(oy || 0, -slackY, slackY);
+  const slackX = Math.max(0, (drawW - panelBox.w) / 2 / panelBox.w);
+  const slackY = Math.max(0, (drawH - panelBox.h) / 2 / panelBox.h);
+  const panX = clampNum(ox || 0, -slackX, slackX);
+  const panY = clampNum(oy || 0, -slackY, slackY);
   return {
-    x: box.x + (box.w - drawW) / 2 + panX * box.w,
-    y: box.y + (box.h - drawH) / 2 + panY * box.h,
+    x: panelBox.x + (panelBox.w - drawW) / 2 + panX * panelBox.w,
+    y: panelBox.y + (panelBox.h - drawH) / 2 + panY * panelBox.h,
     w: drawW,
     h: drawH,
   };
@@ -144,63 +122,65 @@ function coverPlacement(img, box, zoom, ox, oy) {
 
 // Paints one photo into a clipped panel box. Returns false when the panel
 // has no photo yet, so the caller can draw the empty placeholder instead.
-function paintPhoto(ctx, box, panel, grade) {
+function drawPhotoPanel(ctx, panelBox, panel, grade) {
   const img = panel.img;
   if (!img) return false;
-  const place = coverPlacement(img, box, panel.zoom || 1, panel.ox, panel.oy);
+  const spot = placePhoto(img, panelBox, panel.zoom || 1, panel.ox, panel.oy);
   ctx.save();
   ctx.filter = grade.filter;
-  ctx.drawImage(img, place.x, place.y, place.w, place.h);
+  ctx.drawImage(img, spot.x, spot.y, spot.w, spot.h);
   ctx.restore();
   return true;
 }
 
 // Paints the grade's diagonal wash and its multiply tint over a panel box.
 // The caller must already have clipped to the box.
-function paintGrade(ctx, box, grade) {
-  const wash = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
+function washPanel(ctx, panelBox, grade) {
+  const wash = ctx.createLinearGradient(panelBox.x, panelBox.y, panelBox.x + panelBox.w, panelBox.y + panelBox.h);
   wash.addColorStop(0, grade.washFrom);
   wash.addColorStop(1, grade.washTo);
   ctx.save();
   ctx.globalCompositeOperation = grade.washBlend;
   ctx.globalAlpha = grade.washStrength;
   ctx.fillStyle = wash;
-  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
   ctx.restore();
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
   ctx.fillStyle = grade.tint;
-  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
   ctx.restore();
 }
 
 // Placeholder for a panel with no photo: a deep gradient, a big plus, the
 // panel number and a short prompt.
-function paintEmptyPanel(ctx, box, index) {
-  const bg = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
+function drawEmptyPanel(ctx, panelBox, index) {
+  const bg = ctx.createLinearGradient(panelBox.x, panelBox.y, panelBox.x + panelBox.w, panelBox.y + panelBox.h);
   bg.addColorStop(0, '#3a1c52');
   bg.addColorStop(1, '#160a20');
   ctx.fillStyle = bg;
-  ctx.fillRect(box.x, box.y, box.w, box.h);
-  const cx = box.x + box.w / 2;
-  const cy = box.y + box.h / 2;
-  const labelSize = Math.max(11, box.w * 0.045);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-  ctx.font = `700 ${Math.max(18, box.w * 0.09)}px ${TITLE_FONT}`;
+  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
+  const cx = panelBox.x + panelBox.w / 2;
+  const cy = panelBox.y + panelBox.h / 2;
+  const labelSize = Math.max(11, panelBox.w * 0.045);
+  const plusSize = Math.max(18, panelBox.w * 0.09);
+  const smallSize = Math.max(9, panelBox.w * 0.03);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.font = `700 ${plusSize}px ${TITLE_FONT}`;
   ctx.fillText('+', cx, cy - labelSize * 0.9);
   ctx.font = `700 ${labelSize}px ${TITLE_FONT}`;
   ctx.fillText('ADD A PHOTO', cx, cy + labelSize * 0.7);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.font = `700 ${Math.max(9, box.w * 0.03)}px ${TITLE_FONT}`;
+  ctx.font = `700 ${smallSize}px ${TITLE_FONT}`;
   ctx.fillText(`PANEL ${index + 1}`, cx, cy + labelSize * 1.9);
   ctx.textAlign = 'left';
 }
 
 // Shrinks `text` until it fits `maxWidth`, starting from `startSize`.
 // Returns the size that fits (never below `minSize`).
-function fitText(ctx, text, startSize, minSize, maxWidth) {
+function shrinkToFit(ctx, text, startSize, minSize, maxWidth) {
   let size = startSize;
   ctx.font = `900 ${size}px ${TITLE_FONT}`;
   while (size > minSize && ctx.measureText(text).width > maxWidth) {
@@ -213,7 +193,7 @@ function fitText(ctx, text, startSize, minSize, maxWidth) {
 // The title band: dark gradient, a sunset gradient rule on top, the big
 // condensed title with a soft shadow, the pink tracked subtitle, and a small
 // studio mark at bottom-right when the subtitle leaves room for it.
-function paintTitleBand(ctx, w, h, title, subtitle) {
+function drawTitleBand(ctx, w, h, title, subtitle) {
   const bandY = h * (1 - TITLE_SHARE);
   const bandH = h * TITLE_SHARE;
   const pad = w * 0.035;
@@ -233,7 +213,7 @@ function paintTitleBand(ctx, w, h, title, subtitle) {
 
   const words = (title || 'UNTITLED').trim().toUpperCase();
   const hasSub = Boolean((subtitle || '').trim());
-  const titleSize = fitText(ctx, words, bandH * 0.56, 10, w - pad * 2);
+  const titleSize = shrinkToFit(ctx, words, bandH * 0.56, 10, w - pad * 2);
   const titleY = bandY + bandH * (hasSub ? 0.36 : 0.52);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -254,7 +234,7 @@ function paintTitleBand(ctx, w, h, title, subtitle) {
   let subWidth = 0;
   const sub = (subtitle || '').trim().toUpperCase();
   if (sub) {
-    const subSize = fitText(ctx, sub, bandH * 0.2, 9, w - pad * 2);
+    const subSize = shrinkToFit(ctx, sub, bandH * 0.2, 9, w - pad * 2);
     ctx.font = `900 ${subSize}px ${TITLE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.max(2, subSize * 0.22)}px`;
     ctx.fillStyle = '#ff5ea8';
@@ -274,11 +254,11 @@ function paintTitleBand(ctx, w, h, title, subtitle) {
 }
 
 // Grain (overlay blend, faint) plus a dark vignette around the edges.
-function paintFinish(ctx, w, h) {
+function addGrainAndVignette(ctx, w, h) {
   ctx.save();
   ctx.globalAlpha = 0.08;
   ctx.globalCompositeOperation = 'overlay';
-  ctx.fillStyle = grainPattern(ctx);
+  ctx.fillStyle = noisePattern(ctx);
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
   const vig = ctx.createRadialGradient(
@@ -289,6 +269,17 @@ function paintFinish(ctx, w, h) {
   vig.addColorStop(1, 'rgba(10, 4, 18, 0.38)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
+}
+
+// Outlines one panel with a dashed pink frame — the live preview's mark for
+// the selected panel. Exports never draw it.
+function outlinePanel(ctx, panelBox, w) {
+  ctx.save();
+  ctx.strokeStyle = '#ff2e88';
+  ctx.lineWidth = Math.max(3, w * 0.004);
+  ctx.setLineDash([Math.max(8, w * 0.012), Math.max(6, w * 0.008)]);
+  ctx.strokeRect(panelBox.x - 2, panelBox.y - 2, panelBox.w + 4, panelBox.h + 4);
+  ctx.restore();
 }
 
 // Draws the whole cover onto `canvas` (at the canvas's own pixel size) from
@@ -303,33 +294,26 @@ export function drawCover(canvas, state, opts = {}) {
   ctx.fillRect(0, 0, w, h);
 
   const boxes = panelRects(state.layout, w, h);
-  boxes.forEach((box, i) => {
+  boxes.forEach((panelBox, i) => {
     const panel = state.panels[i] || {};
     ctx.save();
     ctx.beginPath();
-    ctx.rect(box.x, box.y, box.w, box.h);
+    ctx.rect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
     ctx.clip();
-    if (paintPhoto(ctx, box, panel, grade)) {
-      paintGrade(ctx, box, grade);
+    if (drawPhotoPanel(ctx, panelBox, panel, grade)) {
+      washPanel(ctx, panelBox, grade);
     } else {
-      paintEmptyPanel(ctx, box, i);
+      drawEmptyPanel(ctx, panelBox, i);
     }
     ctx.restore();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.lineWidth = Math.max(2, w * 0.002);
-    ctx.strokeRect(box.x, box.y, box.w, box.h);
-    if (opts.highlight === i) {
-      ctx.save();
-      ctx.strokeStyle = '#ff2e88';
-      ctx.lineWidth = Math.max(3, w * 0.004);
-      ctx.setLineDash([Math.max(8, w * 0.012), Math.max(6, w * 0.008)]);
-      ctx.strokeRect(box.x - 2, box.y - 2, box.w + 4, box.h + 4);
-      ctx.restore();
-    }
+    ctx.strokeRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
+    if (opts.highlight === i) outlinePanel(ctx, panelBox, w);
   });
 
-  if (state.grain !== false) paintFinish(ctx, w, h);
-  paintTitleBand(ctx, w, h, state.title, state.subtitle);
+  if (state.grain !== false) addGrainAndVignette(ctx, w, h);
+  drawTitleBand(ctx, w, h, state.title, state.subtitle);
 }
 
 // Renders the cover at one export size and returns the offscreen canvas.

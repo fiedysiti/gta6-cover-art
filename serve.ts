@@ -1,11 +1,13 @@
-// A tiny static server for app/ (Node 22, standard library only), so the
+// A tiny static server for app/ (Node 22+, standard library only), so the
 // entry can be tried locally without a build step:
 //
 //   node serve.ts [--port 8080]
 //
 // It serves app/ on http://localhost:8080 by default, sends the MIME types
-// an offline web app needs, and refuses any path that escapes app/. That is
-// all it does: a development convenience, not a server for the internet.
+// an offline web app needs, answers HEAD, rejects other methods with 405,
+// and refuses any path that escapes app/. That is all it does: a
+// development convenience, not a server for the internet.
+
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -13,34 +15,37 @@ import { fileURLToPath } from 'node:url';
 
 const APP_ROOT = resolve(fileURLToPath(new URL('./app', import.meta.url)));
 const DEFAULT_PORT = 8080;
+const MAX_PORT = 65536;
 
 const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
+  '.html': 'text/html; charset=utf-8',
   '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.ttf': 'font/ttf',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.otf': 'font/otf',
-  '.wasm': 'application/wasm',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
-  '.bin': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
 };
 
+// Reads `--port N` from the argument list; anything missing or out of
+// range falls back to the default port.
 function pickPort(argv) {
   const flag = argv.indexOf('--port');
   if (flag === -1) return DEFAULT_PORT;
   const wanted = Number(argv[flag + 1]);
-  return Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : DEFAULT_PORT;
+  const valid = Number.isInteger(wanted) && wanted > 0 && wanted < MAX_PORT;
+  return valid ? wanted : DEFAULT_PORT;
 }
 
 // Resolves a request path to a file inside APP_ROOT, or null when the path
@@ -48,8 +53,8 @@ function pickPort(argv) {
 function fileInsideRoot(pathname) {
   const cleaned = pathname.endsWith('/') ? `${pathname}index.html` : pathname;
   const file = resolve(join(APP_ROOT, normalize(cleaned)));
-  if (file !== APP_ROOT && !file.startsWith(APP_ROOT + sep)) return null;
-  return file;
+  const inside = file === APP_ROOT || file.startsWith(APP_ROOT + sep);
+  return inside ? file : null;
 }
 
 function mimeFor(file) {
@@ -63,6 +68,7 @@ createServer((request, response) => {
     response.writeHead(405).end('method not allowed');
     return;
   }
+
   let pathname;
   try {
     pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
@@ -70,11 +76,13 @@ createServer((request, response) => {
     response.writeHead(400).end('bad request');
     return;
   }
+
   const file = fileInsideRoot(pathname);
   if (!file) {
     response.writeHead(403).end('forbidden');
     return;
   }
+
   let size;
   try {
     const stats = statSync(file);
@@ -84,6 +92,7 @@ createServer((request, response) => {
     response.writeHead(404).end('not found');
     return;
   }
+
   response.writeHead(200, {
     'content-type': mimeFor(file),
     'content-length': size,

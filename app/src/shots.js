@@ -10,14 +10,17 @@ import { EXPORT_SIZES } from './cover.js';
 
 // Per-panel framing for the cover scenes, so a single photo fills the whole
 // cover without every panel showing the same crop.
-const SCENE_FRAMING = [
+const PANEL_FRAMING = [
   { ox: 0, oy: 0, zoom: 1 },
   { ox: -0.12, oy: 0, zoom: 1 },
   { ox: 0, oy: 0.1, zoom: 1 },
   { ox: 0.14, oy: 0, zoom: 1.15 },
 ];
 
-function readScene(query) {
+// Reads the scene knobs out of the query string, with the defaults the
+// first screenshot uses.
+function parseScene(query) {
+  const size = query.get('size');
   return {
     layout: query.get('layout') || 'hero',
     grade: query.get('grade') || 'sunset',
@@ -25,11 +28,13 @@ function readScene(query) {
     photo2: query.get('photo2') || 'pier',
     caption: query.get('caption') || 'Neon Bay',
     subtitle: query.get('subtitle') || 'Vice City Nights',
-    size: EXPORT_SIZES[query.get('size')] ? query.get('size') : 'square',
+    size: EXPORT_SIZES[size] ? size : 'square',
   };
 }
 
-function syncPickers(scene) {
+// Makes the layout and grade pickers show the scene's choices, so the
+// editor screenshot reads as the scene it actually is.
+function reflectPickers(scene) {
   document.querySelectorAll('#layouts .layout-btn').forEach((b) => {
     const on = b.dataset.layout === scene.layout;
     b.classList.toggle('is-active', on);
@@ -44,7 +49,7 @@ function syncPickers(scene) {
 
 export async function runShot(shot, query, app) {
   const { state, loadSample, setPreviewSize, redraw, titleInput, subtitleInput } = app;
-  const scene = readScene(query);
+  const scene = parseScene(query);
 
   state.layout = scene.layout;
   state.grade = scene.grade;
@@ -52,7 +57,7 @@ export async function runShot(shot, query, app) {
   state.subtitle = scene.subtitle;
   titleInput.value = scene.caption;
   subtitleInput.value = scene.subtitle;
-  syncPickers(scene);
+  reflectPickers(scene);
 
   if (shot === 'cover') {
     document.body.classList.add('shot-cover');
@@ -61,7 +66,7 @@ export async function runShot(shot, query, app) {
 
   await loadSample(scene.photo, [0]);
   await loadSample(scene.photo2, [1, 2, 3]);
-  SCENE_FRAMING.forEach((frame, i) => {
+  PANEL_FRAMING.forEach((frame, i) => {
     Object.assign(state.panels[i], frame);
   });
   redraw();
