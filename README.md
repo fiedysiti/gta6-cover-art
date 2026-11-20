@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/gta6-cover-art-01/fiedysiti/gta6-cover-art/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![reward](https://make.fun/badge/gta6-cover-art-01/fiedysiti/gta6-cover-art/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-Vice Cover Studio — an offline browser web app that turns a photo + caption into GTA 6-style cover art. Pick a photo, type a caption, choose a layout and grade, and export the cover. No network needed; everything runs locally.
+Vice Cover Studio turns any photo and a short caption into bold, multi-panel cover art in the spirit of a GTA poster — pick a layout, pick a sunset-soaked grade, frame each panel by dragging, and export a print-ready PNG. It runs entirely in the browser with no network calls, so your photos never leave your machine.
 
 ## Run it
 
