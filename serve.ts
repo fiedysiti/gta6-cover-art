@@ -1,108 +1,82 @@
-// A tiny static server for app/ (Node 22+, standard library only), so the
-// entry can be tried locally without a build step:
+// Vice Cover Studio — local static server for app/ (Node 22, stdlib only).
 //
-//   node serve.ts [--port 8080]
-//
-// It serves app/ on http://localhost:8080 by default, sends the MIME types
-// an offline web app needs, answers HEAD, rejects other methods with 405,
-// and refuses any path that escapes app/. That is all it does: a
-// development convenience, not a server for the internet.
+// Development convenience, not a server for the internet: `node serve.ts`
+// serves app/ on http://localhost:8080 (or `--port <n>`). It answers GET
+// and HEAD, refuses anything outside app/ with 403, answers 404 for a
+// missing file, and 405 for any other method. It sends the MIME types an
+// offline web app needs and nothing else.
 
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const APP_ROOT = resolve(fileURLToPath(new URL('./app', import.meta.url)));
-const DEFAULT_PORT = 8080;
-const MAX_PORT = 65536;
+const appRoot = resolve(fileURLToPath(new URL('./app', import.meta.url)));
+const cliArgs = process.argv.slice(2);
+const portFlag = cliArgs.indexOf('--port');
+const wanted = portFlag === -1 ? 8080 : Number(cliArgs[portFlag + 1]);
+const listenPort = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
 
-const MIME_TYPES = {
-  '.css': 'text/css; charset=utf-8',
-  '.gif': 'image/gif',
+const MEDIA_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
   '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.otf': 'font/otf',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
   '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
   '.txt': 'text/plain; charset=utf-8',
   '.wasm': 'application/wasm',
-  '.webp': 'image/webp',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
 };
 
-// Reads `--port N` from the argument list; anything missing or out of
-// range falls back to the default port.
-function pickPort(argv) {
-  const flag = argv.indexOf('--port');
-  if (flag === -1) return DEFAULT_PORT;
-  const wanted = Number(argv[flag + 1]);
-  const valid = Number.isInteger(wanted) && wanted > 0 && wanted < MAX_PORT;
-  return valid ? wanted : DEFAULT_PORT;
-}
-
-// Resolves a request path to a file inside APP_ROOT, or null when the path
-// tries to escape it. A trailing slash serves that folder's index.html.
-function fileInsideRoot(pathname) {
-  const cleaned = pathname.endsWith('/') ? `${pathname}index.html` : pathname;
-  const file = resolve(join(APP_ROOT, normalize(cleaned)));
-  const inside = file === APP_ROOT || file.startsWith(APP_ROOT + sep);
-  return inside ? file : null;
-}
-
-function mimeFor(file) {
-  return MIME_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
-}
-
-const port = pickPort(process.argv.slice(2));
-
-createServer((request, response) => {
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    response.writeHead(405).end('method not allowed');
+createServer((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { allow: 'GET, HEAD' }).end('method not allowed');
     return;
   }
-
-  let pathname;
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  let pathname: string;
   try {
-    pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    pathname = decodeURIComponent(url.pathname);
   } catch {
-    response.writeHead(400).end('bad request');
+    res.writeHead(400).end('bad request');
     return;
   }
-
-  const file = fileInsideRoot(pathname);
-  if (!file) {
-    response.writeHead(403).end('forbidden');
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const target = resolve(join(appRoot, normalize(pathname)));
+  if (target !== appRoot && !target.startsWith(appRoot + sep)) {
+    res.writeHead(403).end('forbidden');
     return;
   }
-
-  let size;
+  let byteSize: number;
   try {
-    const stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
+    const info = statSync(target);
+    if (!info.isFile()) throw new Error('not a file');
+    byteSize = info.size;
   } catch {
-    response.writeHead(404).end('not found');
+    res.writeHead(404).end('not found');
     return;
   }
-
-  response.writeHead(200, {
-    'content-type': mimeFor(file),
-    'content-length': size,
+  res.writeHead(200, {
+    'content-type': MEDIA_TYPES[extname(target).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': byteSize,
     'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
   });
-  if (request.method === 'HEAD') {
-    response.end();
+  if (req.method === 'HEAD') {
+    res.end();
     return;
   }
-  createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`app/ is on http://localhost:${port}`);
+  createReadStream(target).pipe(res);
+}).listen(listenPort, '127.0.0.1', () => {
+  console.log(`Vice Cover Studio is on http://localhost:${listenPort}`);
 });

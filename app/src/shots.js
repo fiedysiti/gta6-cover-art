@@ -1,77 +1,78 @@
-// Fixed scenes for screenshots.
+// Vice Cover Studio — fixed scenes for screenshots.
 //
-// `?shot=editor` shows the editor with sample photos loaded; `?shot=cover`
-// shows the finished cover alone, full frame. Query knobs: `size` (square,
-// portrait, wide), `layout` and `grade`, `photo` / `photo2` (the samples),
-// `caption` / `subtitle`. `window.__shotReady` is set once the scene has
-// been painted, so the screenshot harness knows when to capture.
+// A `?shot=` query stages one reproducible scene: `cover` hides the editor
+// and shows only the poster, `editor` keeps the whole page visible. The
+// query picks the export size, arrangement, colour wash, the two sample
+// photos (cycled across the visible panels) and the words. Once the photos
+// and the title font are in and the poster is painted,
+// `window.__shotReady` is set so a screenshot can be taken.
 
-import { EXPORT_SIZES } from './cover.js';
+import { ARRANGEMENTS, SIZE_SPECS, WASHES } from './cover.js';
 
-// Per-panel framing for the cover scenes, so a single photo fills the whole
-// cover without every panel showing the same crop.
-const PANEL_FRAMING = [
-  { ox: 0, oy: 0, zoom: 1 },
-  { ox: -0.12, oy: 0, zoom: 1 },
-  { ox: 0, oy: 0.1, zoom: 1 },
-  { ox: 0.14, oy: 0, zoom: 1.15 },
-];
-
-// Reads the scene knobs out of the query string, with the defaults the
-// first screenshot uses.
-function parseScene(query) {
-  const size = query.get('size');
-  return {
-    layout: query.get('layout') || 'hero',
-    grade: query.get('grade') || 'sunset',
-    photo: query.get('photo') || 'boulevard',
-    photo2: query.get('photo2') || 'pier',
-    caption: query.get('caption') || 'Neon Bay',
-    subtitle: query.get('subtitle') || 'Vice City Nights',
-    size: EXPORT_SIZES[size] ? size : 'square',
-  };
+/** Loads one sample photo by its short name (`samples/<name>.jpg`). */
+function samplePhoto(fetchImage, name) {
+  return fetchImage(`samples/${name}.jpg`);
 }
 
-// Makes the layout and grade pickers show the scene's choices, so the
-// editor screenshot reads as the scene it actually is.
-function reflectPickers(scene) {
-  document.querySelectorAll('#layouts .layout-btn').forEach((b) => {
-    const on = b.dataset.layout === scene.layout;
-    b.classList.toggle('is-active', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
-  document.querySelectorAll('#grades .grade-btn').forEach((b) => {
-    const on = b.dataset.grade === scene.grade;
-    b.classList.toggle('is-active', on);
-    b.setAttribute('aria-pressed', String(on));
-  });
-}
-
-export async function runShot(shot, query, app) {
-  const { state, loadSample, setPreviewSize, redraw, titleInput, subtitleInput } = app;
-  const scene = parseScene(query);
-
-  state.layout = scene.layout;
-  state.grade = scene.grade;
-  state.title = scene.caption;
-  state.subtitle = scene.subtitle;
-  titleInput.value = scene.caption;
-  subtitleInput.value = scene.subtitle;
-  reflectPickers(scene);
-
-  if (shot === 'cover') {
-    document.body.classList.add('shot-cover');
-    setPreviewSize(scene.size);
+/**
+ * Mirrors the staged scene back into the editor controls, so an `editor`
+ * screenshot shows the same words and the same active chips as the poster.
+ */
+function syncControls(studio) {
+  const headline = document.getElementById('headline');
+  if (headline) headline.value = studio.headline;
+  const tagline = document.getElementById('tagline');
+  if (tagline) tagline.value = studio.tagline;
+  const groups = { arrangement: studio.arrangement, wash: studio.wash, size: studio.sizeName };
+  for (const [group, value] of Object.entries(groups)) {
+    document.querySelectorAll(`[data-${group}]`).forEach((chip) => {
+      const on = chip.dataset[group] === value;
+      chip.classList.toggle('chip-on', on);
+      chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   }
+}
 
-  await loadSample(scene.photo, [0]);
-  await loadSample(scene.photo2, [1, 2, 3]);
-  PANEL_FRAMING.forEach((frame, i) => {
-    Object.assign(state.panels[i], frame);
+/**
+ * Stages the scene described by `query` into `studio`, paints through
+ * `refresh`, then flags the page ready. `fetchImage` loads images,
+ * `refresh` repaints the stage at the scene's size.
+ */
+export async function applyScene(query, studio, fetchImage, refresh) {
+  const shot = query.get('shot');
+  if (shot === 'cover') document.body.classList.add('cover-only');
+
+  const size = query.get('size');
+  if (size && Object.hasOwn(SIZE_SPECS, size)) studio.sizeName = size;
+  const layout = query.get('layout');
+  if (layout && ARRANGEMENTS.includes(layout)) studio.arrangement = layout;
+  const grade = query.get('grade');
+  if (grade && Object.hasOwn(WASHES, grade)) studio.wash = grade;
+  const caption = query.get('caption');
+  if (caption !== null) studio.headline = caption;
+  const subtitle = query.get('subtitle');
+  if (subtitle !== null) studio.tagline = subtitle;
+
+  // Fill the visible panels by cycling the two named photos.
+  const first = query.get('photo') || 'pier';
+  const second = query.get('photo2') || first;
+  const names = [first, second, first, second];
+  const loaded = await Promise.allSettled(names.map((name) => samplePhoto(fetchImage, name)));
+  loaded.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      studio.slots[i].photo = result.value;
+      studio.slots[i].zoom = 1;
+      studio.slots[i].dx = 0;
+      studio.slots[i].dy = 0;
+    }
   });
-  redraw();
-  // The paint above is synchronous, so the scene is already on the canvas;
-  // flag readiness directly instead of waiting on requestAnimationFrame,
-  // which a headless browser only fires when a frame is produced on demand.
+
+  // The condensed title font must be in before the first paint, or the
+  // headline falls back to a system font in the screenshot.
+  try { await document.fonts.load('900 100px ViceCondensed'); } catch { /* fallback font */ }
+  await document.fonts.ready;
+  syncControls(studio);
+  refresh();
+  await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
   window.__shotReady = true;
 }

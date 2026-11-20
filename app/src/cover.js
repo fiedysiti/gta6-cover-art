@@ -1,327 +1,210 @@
-// Vice Cover Studio — cover renderer.
+// Vice Cover Studio — poster painter.
 //
-// Everything the app shows and exports is painted here with plain canvas
-// 2D: multi-panel layouts, colour grades, film grain, a vignette, and the
-// bold condensed title band at the foot. The live preview and the exported
-// PNGs share this one code path, so what you see is exactly what you save.
-//
-// A cover state looks like:
-//   { layout, grade, title, subtitle, grain, panels: [{ img, zoom, ox, oy }] }
-// Panel offsets (ox, oy) are fractions of the panel's own width/height.
+// Paints the whole cover onto a canvas from a plain studio state object:
+// which arrangement of panels, which colour wash, which export size, the
+// headline + tagline, and one photo (with its own pan/zoom) per panel slot.
+// Nothing here touches the DOM except the canvas it is handed, so the same
+// function paints the live preview and the exported PNG.
 
-export const TITLE_FONT = "'Vice Condensed', 'Arial Narrow', 'Liberation Sans Narrow', sans-serif";
-
-// How much of the cover height the title band takes.
-const TITLE_SHARE = 0.15;
-// Gutter between panels, as a share of the cover width.
-const GUTTER_SHARE = 0.006;
-
-// One panel box as fractions of the photo area (everything above the title
-// band): { x, y, w, h }, each in 0..1.
-const box = (x, y, w, h) => ({ x, y, w, h });
-
-export const LAYOUTS = {
-  hero: [
-    box(0, 0, 0.62, 1),
-    box(0.62, 0, 0.38, 1 / 3),
-    box(0.62, 1 / 3, 0.38, 1 / 3),
-    box(0.62, 2 / 3, 0.38, 1 / 3),
-  ],
-  grid: [
-    box(0, 0, 0.5, 0.5),
-    box(0.5, 0, 0.5, 0.5),
-    box(0, 0.5, 0.5, 0.5),
-    box(0.5, 0.5, 0.5, 0.5),
-  ],
-  strip: [
-    box(0, 0, 1, 0.62),
-    box(0, 0.62, 1 / 3, 0.38),
-    box(1 / 3, 0.62, 1 / 3, 0.38),
-    box(2 / 3, 0.62, 1 / 3, 0.38),
-  ],
-};
-
-// A grade is a canvas filter for the photo plus a two-colour wash painted
-// over it with a blend mode, and a faint multiply tint on top. Together they
-// give any photo the same sunset / neon / vice / golden treatment.
-const gradeSpec = (filter, washFrom, washTo, washBlend, washStrength, tint) => ({
-  filter, washFrom, washTo, washBlend, washStrength, tint,
-});
-
-export const GRADES = {
-  sunset: gradeSpec('saturate(1.35) contrast(1.08)', '#ffb347', '#ff2e88', 'soft-light', 0.6, 'rgba(255, 110, 60, 0.14)'),
-  neon: gradeSpec('saturate(1.55) contrast(1.12)', '#00e5ff', '#ff2ea6', 'overlay', 0.55, 'rgba(0, 229, 255, 0.10)'),
-  vice: gradeSpec('saturate(1.45) contrast(1.06)', '#7b2fff', '#ff5ea8', 'soft-light', 0.65, 'rgba(123, 47, 255, 0.14)'),
-  gold: gradeSpec('saturate(1.3) contrast(1.05)', '#ffe08a', '#ff7b00', 'soft-light', 0.55, 'rgba(255, 179, 71, 0.14)'),
-};
-
-export const EXPORT_SIZES = {
-  square: { w: 1080, h: 1080, label: '1080 x 1080' },
-  portrait: { w: 1080, h: 1350, label: '1080 x 1350' },
+/** Export sizes the app offers, in final PNG pixels. */
+export const SIZE_SPECS = {
   wide: { w: 1920, h: 1080, label: '1920 x 1080' },
+  portrait: { w: 1080, h: 1350, label: '1080 x 1350' },
+  square: { w: 1080, h: 1080, label: '1080 x 1080' },
 };
-export const EXPORT_ORDER = ['square', 'portrait', 'wide'];
 
-const clampNum = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+/** Colour washes: two wash colours plus the accent used for the title bar. */
+export const WASHES = {
+  sunset: { from: '#ff8a3d', to: '#e83e8c', accent: '#ffb03a', scrim: 0.5 },
+  neon: { from: '#22d3ee', to: '#f021b6', accent: '#37f5d3', scrim: 0.42 },
+  vice: { from: '#8b5cf6', to: '#ec4899', accent: '#f472b6', scrim: 0.5 },
+  gold: { from: '#fbbf24', to: '#ea580c', accent: '#fde68a', scrim: 0.48 },
+};
 
-let noiseTile = null;
+/** Arrangements the picker offers. */
+export const ARRANGEMENTS = ['hero', 'strip', 'grid', 'single'];
 
-// Lazily builds a small tile of grey noise and returns it as a repeat
-// pattern for the context that asked. One tile serves every later paint.
-function noisePattern(ctx) {
-  if (noiseTile) return noiseTile;
-  const size = 128;
-  const tile = document.createElement('canvas');
-  tile.width = size;
-  tile.height = size;
-  const tctx = tile.getContext('2d');
-  const pixels = tctx.createImageData(size, size);
-  for (let i = 0; i < pixels.data.length; i += 4) {
-    const shade = 96 + Math.floor(Math.random() * 64);
-    pixels.data[i] = shade;
-    pixels.data[i + 1] = shade;
-    pixels.data[i + 2] = shade;
-    pixels.data[i + 3] = 255;
+/**
+ * Panel rectangles for an arrangement inside a canvas of w x h.
+ * Returns one rect per visible panel, in slot order.
+ */
+export function slotBoxes(w, h, arrangement) {
+  const gap = Math.max(8, Math.round(Math.min(w, h) * 0.012));
+  const m = gap;
+  if (arrangement === 'single') {
+    return [{ x: m, y: m, w: w - 2 * m, h: h - 2 * m }];
   }
-  tctx.putImageData(pixels, 0, 0);
-  noiseTile = ctx.createPattern(tile, 'repeat');
-  return noiseTile;
+  if (arrangement === 'grid') {
+    const cw = (w - 3 * m) / 2;
+    const ch = (h - 3 * m) / 2;
+    return [
+      { x: m, y: m, w: cw, h: ch },
+      { x: 2 * m + cw, y: m, w: cw, h: ch },
+      { x: m, y: 2 * m + ch, w: cw, h: ch },
+      { x: 2 * m + cw, y: 2 * m + ch, w: cw, h: ch },
+    ];
+  }
+  if (arrangement === 'strip') {
+    const cw = (w - 4 * m) / 3;
+    return [0, 1, 2].map((i) => ({
+      x: m + i * (cw + m),
+      y: m,
+      w: cw,
+      h: h - 2 * m,
+    }));
+  }
+  // hero: one tall panel on the left, two stacked panels on the right.
+  const bigW = (w - 3 * m) * 0.62;
+  const sideX = m + bigW + m;
+  const sideW = w - sideX - m;
+  const halfH = (h - 3 * m) / 2;
+  return [
+    { x: m, y: m, w: bigW, h: h - 2 * m },
+    { x: sideX, y: m, w: sideW, h: halfH },
+    { x: sideX, y: 2 * m + halfH, w: sideW, h: halfH },
+  ];
 }
 
-// Panel boxes in canvas pixels for `layout` on a cover of w x h.
-export function panelRects(layout, w, h) {
-  const photoH = h * (1 - TITLE_SHARE);
-  const gutter = Math.max(4, Math.round(w * GUTTER_SHARE));
-  const boxes = LAYOUTS[layout] || LAYOUTS.hero;
-  return boxes.map((b) => ({
-    x: b.x * w + gutter / 2,
-    y: b.y * photoH + gutter / 2,
-    w: b.w * w - gutter,
-    h: b.h * photoH - gutter,
-  }));
+/** How many slots an arrangement actually shows. */
+export function slotCount(arrangement) {
+  return slotBoxes(100, 100, arrangement).length;
 }
 
-// The scale that makes an image cover a box, times the user's zoom, plus the
-// draw position for the current pan. Pan is clamped so the photo can never
-// slide far enough to expose bare background at a panel edge.
-function placePhoto(img, panelBox, zoom, ox, oy) {
-  const scale = Math.max(panelBox.w / img.naturalWidth, panelBox.h / img.naturalHeight) * zoom;
-  const drawW = img.naturalWidth * scale;
-  const drawH = img.naturalHeight * scale;
-  const slackX = Math.max(0, (drawW - panelBox.w) / 2 / panelBox.w);
-  const slackY = Math.max(0, (drawH - panelBox.h) / 2 / panelBox.h);
-  const panX = clampNum(ox || 0, -slackX, slackX);
-  const panY = clampNum(oy || 0, -slackY, slackY);
-  return {
-    x: panelBox.x + (panelBox.w - drawW) / 2 + panX * panelBox.w,
-    y: panelBox.y + (panelBox.h - drawH) / 2 + panY * panelBox.h,
-    w: drawW,
-    h: drawH,
-  };
+/**
+ * Where an image lands inside a panel: cover-fit, scaled by the slot's zoom
+ * and shifted by its pan offsets, with the pan clamped so the photo can
+ * never be dragged far enough to show the panel's background at an edge.
+ */
+function coverPlacement(img, box, zoom, dx, dy) {
+  const base = Math.max(box.w / img.naturalWidth, box.h / img.naturalHeight);
+  const scale = base * Math.max(1, zoom);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  const maxX = Math.max(0, (dw - box.w) / 2);
+  const maxY = Math.max(0, (dh - box.h) / 2);
+  const ox = Math.max(-maxX, Math.min(maxX, dx));
+  const oy = Math.max(-maxY, Math.min(maxY, dy));
+  return { x: box.x + (box.w - dw) / 2 + ox, y: box.y + (box.h - dh) / 2 + oy, w: dw, h: dh };
 }
 
-// Paints one photo into a clipped panel box. Returns false when the panel
-// has no photo yet, so the caller can draw the empty placeholder instead.
-function drawPhotoPanel(ctx, panelBox, panel, grade) {
-  const img = panel.img;
-  if (!img) return false;
-  const spot = placePhoto(img, panelBox, panel.zoom || 1, panel.ox, panel.oy);
-  ctx.save();
-  ctx.filter = grade.filter;
-  ctx.drawImage(img, spot.x, spot.y, spot.w, spot.h);
-  ctx.restore();
-  return true;
+/** Shrinks a font size until `text` fits `maxWidth`, then returns it. */
+function shrinkToFit(ctx, text, startPx, maxWidth, family, weight) {
+  let px = startPx;
+  ctx.font = `${weight} ${px}px ${family}`;
+  while (px > 14 && ctx.measureText(text).width > maxWidth) {
+    px -= 2;
+    ctx.font = `${weight} ${px}px ${family}`;
+  }
+  return px;
 }
 
-// Paints the grade's diagonal wash and its multiply tint over a panel box.
-// The caller must already have clipped to the box.
-function washPanel(ctx, panelBox, grade) {
-  const wash = ctx.createLinearGradient(panelBox.x, panelBox.y, panelBox.x + panelBox.w, panelBox.y + panelBox.h);
-  wash.addColorStop(0, grade.washFrom);
-  wash.addColorStop(1, grade.washTo);
-  ctx.save();
-  ctx.globalCompositeOperation = grade.washBlend;
-  ctx.globalAlpha = grade.washStrength;
-  ctx.fillStyle = wash;
-  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
-  ctx.restore();
-  ctx.save();
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = grade.tint;
-  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
-  ctx.restore();
-}
-
-// Placeholder for a panel with no photo: a deep gradient, a big plus, the
-// panel number and a short prompt.
-function drawEmptyPanel(ctx, panelBox, index) {
-  const bg = ctx.createLinearGradient(panelBox.x, panelBox.y, panelBox.x + panelBox.w, panelBox.y + panelBox.h);
-  bg.addColorStop(0, '#3a1c52');
-  bg.addColorStop(1, '#160a20');
-  ctx.fillStyle = bg;
-  ctx.fillRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
-  const cx = panelBox.x + panelBox.w / 2;
-  const cy = panelBox.y + panelBox.h / 2;
-  const labelSize = Math.max(11, panelBox.w * 0.045);
-  const plusSize = Math.max(18, panelBox.w * 0.09);
-  const smallSize = Math.max(9, panelBox.w * 0.03);
+function paintEmptySlot(ctx, box, index) {
+  ctx.fillStyle = '#251636';
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.strokeStyle = 'rgba(185, 167, 214, 0.55)';
+  ctx.lineWidth = Math.max(1.5, box.w * 0.004);
+  ctx.setLineDash([10, 8]);
+  ctx.strokeRect(box.x + 8, box.y + 8, box.w - 16, box.h - 16);
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#cbb8e8';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-  ctx.font = `700 ${plusSize}px ${TITLE_FONT}`;
-  ctx.fillText('+', cx, cy - labelSize * 0.9);
-  ctx.font = `700 ${labelSize}px ${TITLE_FONT}`;
-  ctx.fillText('ADD A PHOTO', cx, cy + labelSize * 0.7);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.font = `700 ${smallSize}px ${TITLE_FONT}`;
-  ctx.fillText(`PANEL ${index + 1}`, cx, cy + labelSize * 1.9);
-  ctx.textAlign = 'left';
+  const plus = Math.min(box.w, box.h) * 0.22;
+  ctx.font = `300 ${plus}px system-ui, sans-serif`;
+  ctx.fillText('+', box.x + box.w / 2, box.y + box.h / 2 - plus * 0.28);
+  const labelPx = Math.max(13, Math.min(30, box.w * 0.055));
+  ctx.font = `700 ${labelPx}px system-ui, sans-serif`;
+  ctx.fillText(`PANEL ${index + 1}`, box.x + box.w / 2, box.y + box.h / 2 + plus * 0.42);
+  ctx.fillStyle = '#8f7fb3';
+  ctx.font = `600 ${Math.max(11, labelPx * 0.62)}px system-ui, sans-serif`;
+  ctx.fillText('ADD A PHOTO', box.x + box.w / 2, box.y + box.h / 2 + plus * 0.42 + labelPx * 1.15);
 }
 
-// Shrinks `text` until it fits `maxWidth`, starting from `startSize`.
-// Returns the size that fits (never below `minSize`).
-function shrinkToFit(ctx, text, startSize, minSize, maxWidth) {
-  let size = startSize;
-  ctx.font = `900 ${size}px ${TITLE_FONT}`;
-  while (size > minSize && ctx.measureText(text).width > maxWidth) {
-    size -= 2;
-    ctx.font = `900 ${size}px ${TITLE_FONT}`;
+function paintPhotoSlot(ctx, img, box, slot, wash) {
+  const place = coverPlacement(img, box, slot.zoom || 1, slot.dx || 0, slot.dy || 0);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.w, box.h);
+  ctx.clip();
+  ctx.drawImage(img, place.x, place.y, place.w, place.h);
+  // Diagonal colour wash over the photo, plus a darker foot inside the
+  // panel so the headline stays readable even over a bright photo.
+  const tint = ctx.createLinearGradient(box.x, box.y, box.x + box.w, box.y + box.h);
+  tint.addColorStop(0, wash.from + '3d');
+  tint.addColorStop(1, wash.to + '59');
+  ctx.fillStyle = tint;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  const foot = ctx.createLinearGradient(0, box.y + box.h * 0.72, 0, box.y + box.h);
+  foot.addColorStop(0, 'rgba(10, 4, 20, 0)');
+  foot.addColorStop(1, 'rgba(10, 4, 20, 0.28)');
+  ctx.fillStyle = foot;
+  ctx.fillRect(box.x, box.y, box.w, box.h);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = Math.max(2, box.w * 0.004);
+  ctx.strokeRect(box.x, box.y, box.w, box.h);
+}
+
+function paintWords(ctx, w, h, wash, headline, tagline) {
+  const margin = Math.max(14, Math.round(Math.min(w, h) * 0.02));
+  const words = (headline || '').trim().toUpperCase();
+  const sub = (tagline || '').trim().toUpperCase();
+  if (!words && !sub) return;
+
+  // Dark scrim along the foot so the lettering stays readable over photos.
+  const scrimH = h * 0.26;
+  const scrim = ctx.createLinearGradient(0, h - scrimH, 0, h);
+  scrim.addColorStop(0, 'rgba(10, 4, 20, 0)');
+  scrim.addColorStop(1, `rgba(10, 4, 20, ${wash.scrim + 0.18})`);
+  ctx.fillStyle = scrim;
+  ctx.fillRect(0, h - scrimH, w, scrimH);
+
+  const family = '"ViceCondensed", "Noto Sans Display Condensed Black", "Arial Narrow", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const subPx = Math.max(16, Math.round(h * 0.032));
+  const gapPx = Math.round(h * 0.018);
+  const headBaseline = h - margin - (sub ? subPx + gapPx : 0);
+  if (words) {
+    const headPx = shrinkToFit(ctx, words, Math.round(h * 0.13), w - 2 * margin, family, 900);
+    // Short accent bar above the headline.
+    ctx.fillStyle = wash.accent;
+    ctx.fillRect(margin, headBaseline - headPx - Math.round(headPx * 0.28), Math.round(w * 0.075), Math.max(4, Math.round(headPx * 0.07)));
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = headPx * 0.16;
+    ctx.shadowOffsetY = headPx * 0.03;
+    ctx.fillText(words, margin, headBaseline);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
   }
-  return size;
-}
-
-// The title band: dark gradient, a sunset gradient rule on top, the big
-// condensed title with a soft shadow, the pink tracked subtitle, and a small
-// studio mark at bottom-right when the subtitle leaves room for it.
-function drawTitleBand(ctx, w, h, title, subtitle) {
-  const bandY = h * (1 - TITLE_SHARE);
-  const bandH = h * TITLE_SHARE;
-  const pad = w * 0.035;
-
-  const bg = ctx.createLinearGradient(0, bandY, 0, h);
-  bg.addColorStop(0, '#1c0b28');
-  bg.addColorStop(1, '#0d0514');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, bandY, w, bandH);
-
-  const rule = ctx.createLinearGradient(0, 0, w, 0);
-  rule.addColorStop(0, '#ffb347');
-  rule.addColorStop(0.5, '#ff2e88');
-  rule.addColorStop(1, '#7b2fff');
-  ctx.fillStyle = rule;
-  ctx.fillRect(0, bandY, w, Math.max(3, h * 0.004));
-
-  const words = (title || 'UNTITLED').trim().toUpperCase();
-  const hasSub = Boolean((subtitle || '').trim());
-  const titleSize = shrinkToFit(ctx, words, bandH * 0.56, 10, w - pad * 2);
-  const titleY = bandY + bandH * (hasSub ? 0.36 : 0.52);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.font = `900 ${titleSize}px ${TITLE_FONT}`;
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(2, titleSize * 0.1);
-  ctx.strokeStyle = '#12081a';
-  ctx.shadowColor = 'rgba(255, 46, 136, 0.45)';
-  ctx.shadowBlur = Math.max(6, titleSize * 0.25);
-  ctx.shadowOffsetY = Math.max(2, titleSize * 0.05);
-  ctx.strokeText(words, pad, titleY);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(words, pad, titleY);
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  let subWidth = 0;
-  const sub = (subtitle || '').trim().toUpperCase();
   if (sub) {
-    const subSize = shrinkToFit(ctx, sub, bandH * 0.2, 9, w - pad * 2);
-    ctx.font = `900 ${subSize}px ${TITLE_FONT}`;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.max(2, subSize * 0.22)}px`;
-    ctx.fillStyle = '#ff5ea8';
-    ctx.fillText(sub, pad, bandY + bandH * 0.8);
-    subWidth = ctx.measureText(sub).width;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
-  }
-
-  if (subWidth < w * 0.62) {
-    const markSize = Math.max(9, bandH * 0.13);
-    ctx.font = `700 ${markSize}px ${TITLE_FONT}`;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.fillText('VICE COVER STUDIO', w - pad, bandY + bandH * 0.82);
-    ctx.textAlign = 'left';
+    try { ctx.letterSpacing = `${Math.max(2, Math.round(subPx * 0.18))}px`; } catch { /* older canvas: no tracking */ }
+    ctx.font = `600 ${subPx}px system-ui, sans-serif`;
+    ctx.fillStyle = '#ffe9f4';
+    ctx.fillText(sub, margin, h - margin);
+    try { ctx.letterSpacing = '0px'; } catch { /* ignore */ }
   }
 }
 
-// Grain (overlay blend, faint) plus a dark vignette around the edges.
-function addGrainAndVignette(ctx, w, h) {
-  ctx.save();
-  ctx.globalAlpha = 0.08;
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.fillStyle = noisePattern(ctx);
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
-  const vig = ctx.createRadialGradient(
-    w / 2, h * 0.42, Math.min(w, h) * 0.35,
-    w / 2, h / 2, Math.max(w, h) * 0.75,
-  );
-  vig.addColorStop(0, 'rgba(10, 4, 18, 0)');
-  vig.addColorStop(1, 'rgba(10, 4, 18, 0.38)');
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, w, h);
-}
-
-// Outlines one panel with a dashed pink frame — the live preview's mark for
-// the selected panel. Exports never draw it.
-function outlinePanel(ctx, panelBox, w) {
-  ctx.save();
-  ctx.strokeStyle = '#ff2e88';
-  ctx.lineWidth = Math.max(3, w * 0.004);
-  ctx.setLineDash([Math.max(8, w * 0.012), Math.max(6, w * 0.008)]);
-  ctx.strokeRect(panelBox.x - 2, panelBox.y - 2, panelBox.w + 4, panelBox.h + 4);
-  ctx.restore();
-}
-
-// Draws the whole cover onto `canvas` (at the canvas's own pixel size) from
-// `state`. `opts.highlight` outlines one panel — used by the live preview
-// to mark the selected panel; exports never pass it.
-export function drawCover(canvas, state, opts = {}) {
+/**
+ * Paints the full poster: background, every visible panel (photo or empty
+ * placeholder), then the headline and tagline along the foot.
+ * `studio` is { arrangement, wash, headline, tagline, slots } where each
+ * slot is { photo, zoom, dx, dy }.
+ */
+export function paintPoster(canvas, studio) {
   const ctx = canvas.getContext('2d');
-  const { width: w, height: h } = canvas;
-  const grade = GRADES[state.grade] || GRADES.sunset;
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#12081a';
+  const w = canvas.width;
+  const h = canvas.height;
+  const wash = WASHES[studio.wash] || WASHES.sunset;
+  ctx.fillStyle = '#12081f';
   ctx.fillRect(0, 0, w, h);
-
-  const boxes = panelRects(state.layout, w, h);
-  boxes.forEach((panelBox, i) => {
-    const panel = state.panels[i] || {};
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
-    ctx.clip();
-    if (drawPhotoPanel(ctx, panelBox, panel, grade)) {
-      washPanel(ctx, panelBox, grade);
-    } else {
-      drawEmptyPanel(ctx, panelBox, i);
-    }
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = Math.max(2, w * 0.002);
-    ctx.strokeRect(panelBox.x, panelBox.y, panelBox.w, panelBox.h);
-    if (opts.highlight === i) outlinePanel(ctx, panelBox, w);
+  const boxes = slotBoxes(w, h, studio.arrangement);
+  boxes.forEach((box, i) => {
+    const slot = studio.slots[i] || {};
+    if (slot.photo) paintPhotoSlot(ctx, slot.photo, box, slot, wash);
+    else paintEmptySlot(ctx, box, i);
   });
-
-  if (state.grain !== false) addGrainAndVignette(ctx, w, h);
-  drawTitleBand(ctx, w, h, state.title, state.subtitle);
-}
-
-// Renders the cover at one export size and returns the offscreen canvas.
-export function renderCover(state, sizeKey) {
-  const size = EXPORT_SIZES[sizeKey] || EXPORT_SIZES.square;
-  const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
-  drawCover(canvas, state);
-  return canvas;
+  paintWords(ctx, w, h, wash, studio.headline, studio.tagline);
 }
