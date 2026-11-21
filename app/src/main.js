@@ -7,7 +7,7 @@
 // export. A `?shot=` query hands control to ./shots.js instead, which
 // stages one fixed scene for a screenshot.
 
-import { ARRANGEMENTS, CAPTION_STYLES, SIZE_SPECS, WASHES, paintPoster, slotBoxes } from './cover.js';
+import { ARRANGEMENTS, CAPTION_STYLES, EMBLEM_CORNERS, EMBLEM_SIZES, SIZE_SPECS, WASHES, paintPoster, slotBoxes } from './cover.js';
 import { applyScene } from './shots.js';
 
 const stage = document.getElementById('stage');
@@ -28,9 +28,48 @@ export const studio = {
   headline: "Lucia's Run",
   tagline: 'Outrun The Dawn',
   captionStyle: 'shadow',
+  emblem: { enabled: true, corner: 'tr', size: 'medium' },
+  vignette: 0.35,
+  grain: 0.12,
   slots: [blankSlot(), blankSlot(), blankSlot(), blankSlot()],
   picked: 0,
 };
+
+/**
+ * One-click scene cards: a full poster recipe — layout, grade, caption,
+ * words, size, emblem, and finish — that loads the two sample photos
+ * into the panels so a single click stages a finished cover.
+ */
+export const SCENE_PRESETS = [
+  {
+    name: 'Neon Reign',
+    layout: 'triptych', grade: 'neonNights', captionStyle: 'chrome',
+    headline: 'Neon Reign', tagline: 'Rule The Night', sizeName: 'story',
+    emblem: { enabled: true, corner: 'tr', size: 'medium' },
+    vignette: 0.45, grain: 0.18, photos: ['pier', 'boulevard'],
+  },
+  {
+    name: 'Golden Getaway',
+    layout: 'triptych', grade: 'sunsetGold', captionStyle: 'chrome',
+    headline: 'Golden Getaway', tagline: 'Chase The Last Light', sizeName: 'portrait',
+    emblem: { enabled: true, corner: 'bl', size: 'large' },
+    vignette: 0.3, grain: 0.1, photos: ['boulevard', 'pier'],
+  },
+  {
+    name: 'Vice After Dark',
+    layout: 'hero', grade: 'neonNights', captionStyle: 'chrome',
+    headline: 'Vice After Dark', tagline: 'The City Never Sleeps', sizeName: 'wide',
+    emblem: { enabled: true, corner: 'br', size: 'small' },
+    vignette: 0.55, grain: 0.22, photos: ['pier', 'pier'],
+  },
+  {
+    name: 'Boulevard Kings',
+    layout: 'strip', grade: 'sunsetGold', captionStyle: 'outline',
+    headline: 'Boulevard Kings', tagline: 'Own Every Mile', sizeName: 'square',
+    emblem: { enabled: false, corner: 'tr', size: 'medium' },
+    vignette: 0.2, grain: 0.08, photos: ['boulevard', 'boulevard'],
+  },
+];
 
 /** Loads an image from a URL, resolving once it can be drawn. */
 export function fetchImage(url) {
@@ -89,6 +128,89 @@ function setCaptionStyle(name) {
   refresh();
 }
 
+/** Shows or hides the corner VICE seal and keeps the toggle in sync. */
+function setEmblemEnabled(on) {
+  studio.emblem.enabled = on;
+  const toggle = document.getElementById('emblemToggle');
+  if (toggle) toggle.checked = on;
+  refresh();
+}
+
+/** Moves the VICE seal to another corner of the poster. */
+function setEmblemCorner(corner) {
+  if (!EMBLEM_CORNERS.includes(corner)) return;
+  studio.emblem.corner = corner;
+  markActive('emblemCorner', corner);
+  refresh();
+}
+
+/** Grows or shrinks the VICE seal. */
+function setEmblemSize(size) {
+  if (!EMBLEM_SIZES.includes(size)) return;
+  studio.emblem.size = size;
+  markActive('emblemSize', size);
+  refresh();
+}
+
+/** Sets the edge-darkening strength (0–1) and its slider readout. */
+function setVignette(value) {
+  studio.vignette = Math.max(0, Math.min(1, Number(value) || 0));
+  const slider = document.getElementById('vignetteRange');
+  if (slider) slider.value = String(studio.vignette);
+  const readout = document.getElementById('vignetteValue');
+  if (readout) readout.textContent = `${Math.round(studio.vignette * 100)}%`;
+  refresh();
+}
+
+/** Sets the film-grain amount (0–1) and its slider readout. */
+function setGrain(value) {
+  studio.grain = Math.max(0, Math.min(1, Number(value) || 0));
+  const slider = document.getElementById('grainRange');
+  if (slider) slider.value = String(studio.grain);
+  const readout = document.getElementById('grainValue');
+  if (readout) readout.textContent = `${Math.round(studio.grain * 100)}%`;
+  refresh();
+}
+
+/**
+ * Loads one scene card in a single click: layout, grade, caption style,
+ * words, size, emblem, finish, and the two sample photos dealt into the
+ * panels. The rail controls are synced so the card's choices stay visible.
+ */
+async function applyPreset(preset) {
+  if (!preset) return;
+  setArrangement(preset.layout);
+  setWash(preset.grade);
+  setCaptionStyle(preset.captionStyle);
+  setSizeName(preset.sizeName);
+  studio.headline = preset.headline;
+  studio.tagline = preset.tagline;
+  headlineInput.value = preset.headline;
+  taglineInput.value = preset.tagline;
+  studio.emblem = { ...preset.emblem };
+  setEmblemEnabled(preset.emblem.enabled);
+  setEmblemCorner(preset.emblem.corner);
+  setEmblemSize(preset.emblem.size);
+  setVignette(preset.vignette);
+  setGrain(preset.grain);
+  const names = preset.photos || ['pier', 'boulevard'];
+  const loaded = await Promise.allSettled(names.map((name) => fetchImage(`samples/${name}.jpg`)));
+  const photos = loaded.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  studio.slots.forEach((slot, i) => {
+    slot.photo = photos[i % Math.max(1, photos.length)] || null;
+    slot.zoom = 1;
+    slot.dx = 0;
+    slot.dy = 0;
+  });
+  document.querySelectorAll('[data-preset]').forEach((card) => {
+    const on = card.dataset.preset === preset.name;
+    card.classList.toggle('preset-on', on);
+    card.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  refresh();
+  note.textContent = `Scene "${preset.name}" loaded — ${preset.layout} layout, ${preset.grade} grade, ${preset.captionStyle} caption.`;
+}
+
 /** Picks one item from a list at random. */
 function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
@@ -109,6 +231,14 @@ function randomizePoster() {
   setArrangement(pickRandom(ARRANGEMENTS));
   setWash(pickRandom(Object.keys(WASHES)));
   setCaptionStyle(pickRandom(CAPTION_STYLES));
+  // The finish gets a fresh roll too: a random seal corner and size, and
+  // new vignette and grain strengths, so no two random posters share a
+  // finish even when the layout and grade repeat.
+  setEmblemEnabled(Math.random() > 0.25);
+  setEmblemCorner(pickRandom(EMBLEM_CORNERS));
+  setEmblemSize(pickRandom(EMBLEM_SIZES));
+  setVignette(Math.round(Math.random() * 60) / 100);
+  setGrain(Math.round(Math.random() * 30) / 100);
   const photos = studio.slots.map((slot) => slot.photo).filter(Boolean);
   for (let i = photos.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -121,7 +251,7 @@ function randomizePoster() {
     slot.dy = 0;
   });
   refresh();
-  note.textContent = `Randomized — ${studio.arrangement} layout, ${studio.wash} grade, ${studio.captionStyle} caption.`;
+  note.textContent = `Randomized — ${studio.arrangement} layout, ${studio.wash} grade, ${studio.captionStyle} caption, emblem ${studio.emblem.enabled ? `on (${studio.emblem.corner}, ${studio.emblem.size})` : 'off'}.`;
 }
 
 /** First empty slot, or the picked slot when every slot already has a photo. */
@@ -251,6 +381,27 @@ document.querySelectorAll('[data-size]').forEach((chip) => {
 document.querySelectorAll('[data-captionStyle]').forEach((chip) => {
   chip.addEventListener('click', () => setCaptionStyle(chip.dataset.captionStyle));
 });
+document.querySelectorAll('[data-preset]').forEach((card) => {
+  card.addEventListener('click', () => {
+    const preset = SCENE_PRESETS.find((item) => item.name === card.dataset.preset);
+    applyPreset(preset);
+  });
+});
+document.getElementById('emblemToggle').addEventListener('change', (event) => {
+  setEmblemEnabled(event.target.checked);
+});
+document.querySelectorAll('[data-emblemCorner]').forEach((chip) => {
+  chip.addEventListener('click', () => setEmblemCorner(chip.dataset.emblemCorner));
+});
+document.querySelectorAll('[data-emblemSize]').forEach((chip) => {
+  chip.addEventListener('click', () => setEmblemSize(chip.dataset.emblemSize));
+});
+document.getElementById('vignetteRange').addEventListener('input', (event) => {
+  setVignette(event.target.value);
+});
+document.getElementById('grainRange').addEventListener('input', (event) => {
+  setGrain(event.target.value);
+});
 document.getElementById('shuffleLayout').addEventListener('click', shuffleLayout);
 document.getElementById('randomize').addEventListener('click', randomizePoster);
 document.getElementById('resetFrame').addEventListener('click', () => {
@@ -259,11 +410,11 @@ document.getElementById('resetFrame').addEventListener('click', () => {
 });
 document.getElementById('savePng').addEventListener('click', exportPng);
 
-// Keys 1–5 switch the layout, E exports, R randomizes, S shuffles the
+// Keys 1–6 switch the layout, E exports, R randomizes, S shuffles the
 // layout — all without reaching for the mouse.
 document.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;
-  const at = ['1', '2', '3', '4', '5'].indexOf(event.key);
+  const at = ['1', '2', '3', '4', '5', '6'].indexOf(event.key);
   if (at !== -1) { setArrangement(ARRANGEMENTS[at]); return; }
   const key = event.key.toLowerCase();
   if (key === 'e') exportPng();

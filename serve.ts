@@ -7,7 +7,7 @@
 // types an offline web app needs and nothing else, and logs one line per
 // request unless `--quiet` is passed.
 
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,4 +102,14 @@ createServer((req, res) => {
   createReadStream(target).pipe(res);
 }).listen(listenPort, listenHost, () => {
   console.log(`Vice Cover Studio is on http://${listenHost}:${listenPort}`);
+  // List the screenshot scenes from shots.json so the four scene URLs
+  // are visible at a glance instead of being looked up by hand.
+  try {
+    const shots = JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), 'shots.json'), 'utf8')) as { name: string; query: string }[];
+    for (const shot of shots) {
+      console.log(`shot ${shot.name}: http://${listenHost}:${listenPort}/${shot.query}`);
+    }
+  } catch {
+    console.log('shots.json could not be read — shot URLs not listed');
+  }
 });

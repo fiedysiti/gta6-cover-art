@@ -210,6 +210,106 @@ body.cover-only #stage {
   object-fit: contain;
 }
 
+/* Round 5 — scene preset cards: a two-column grid of named recipes. */
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid #4a2f7d;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #2a1848, #1e1032);
+  color: #e6dcf7;
+  cursor: pointer;
+}
+
+.preset-card:hover { border-color: #ffb03a; transform: translateY(-1px); }
+
+.preset-card:focus-visible { outline: 2px solid #37f5d3; outline-offset: 2px; }
+
+.preset-card strong { font-size: 13.5px; color: #fff; }
+
+.preset-card em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: #8f7fb3;
+}
+
+.preset-card.preset-on {
+  border-color: #e83e8c;
+  background: linear-gradient(160deg, #3d1f63, #2a1145);
+  box-shadow: 0 0 0 1px #e83e8c inset;
+}
+
+/* Round 5 — VICE badge toggle: a checkbox hidden behind a sliding pill. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle-row input { position: absolute; opacity: 0; pointer-events: none; }
+
+.toggle-track {
+  flex: none;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: #3a2360;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e6dcf7;
+  transition: left 0.15s ease;
+}
+
+.toggle-row input:checked + .toggle-track { background: linear-gradient(135deg, #ff8a3d, #e83e8c); }
+
+.toggle-row input:checked + .toggle-track::after { left: 23px; }
+
+.toggle-row input:focus-visible + .toggle-track { outline: 2px solid #37f5d3; outline-offset: 2px; }
+
+/* Round 5 — finish sliders: label, range, and a percentage readout. */
+.slider-row {
+  display: grid;
+  grid-template-columns: 74px 1fr 42px;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.slider-row input[type="range"] {
+  width: 100%;
+  accent-color: #e83e8c;
+  cursor: pointer;
+}
+
+.slider-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #9be8d8;
+}
+
 @media (max-width: 860px) {
   .studio-shell { grid-template-columns: 1fr; }
   .stage-wrap { order: -1; }

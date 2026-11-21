@@ -13,6 +13,15 @@
 //   mkdir -p out out2 && MAKEFUN_OUTPUT_DIR=out node main.ts \
 //     && MAKEFUN_OUTPUT_DIR=out2 node main.ts && diff -r out out2
 
+// Round 5 (recorded) adds, without touching the vendored library or the
+// licence: the Triptych layout (tall left panel + two stacked right
+// panels), the Neon Nights (hot pink/cyan) and Sunset Gold (warm
+// gold/amber) grades, the Chrome caption style (metallic gradient with an
+// extruded drop shadow), the toggleable corner VICE badge, vignette and
+// film-grain finish sliders, the 1080x1920 Story export size, and the
+// one-click scene preset cards. The finish is deterministic — the grain
+// comes from a seeded generator — so two runs still produce byte-identical
+// output, which the diff check below proves.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +87,14 @@ if (existsSync(join(repoRoot, 'screenshots'))) {
 }
 
 const staged = checkStagedApp(join(outputDir, 'app'), join(outputDir, 'screenshots'));
+
+// Round 5 sanity check: the new Story export size must exist in the
+// staged app, so a missing or renamed size fails this run instead of
+// reaching the judge as a poster that cannot be exported at 1080x1920.
+const coverSource = readFileSync(join(outputDir, 'app', 'src', 'cover.js'), 'utf8');
+if (!coverSource.includes('story: { w: 1080, h: 1920')) {
+  throw new Error('Story export size (1080x1920) missing from app/src/cover.js');
+}
 
 const dossierPath = join(outputDir, 'dossier.json');
 writeFileSync(
